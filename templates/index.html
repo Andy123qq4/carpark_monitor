@@ -4,13 +4,17 @@
   <meta charset="UTF-8">
   <title>Carpark Monitor</title>
   <style>
-    body { font-family: sans-serif; padding: 2rem; max-width: 900px; margin: 0 auto; }
+    body { font-family: sans-serif; padding: 2rem; max-width: 1100px; margin: 0 auto; }
     h1 { font-size: 1.4rem; }
     select, button { padding: 0.4rem 0.8rem; margin-right: 0.5rem; }
     table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.9rem; }
-    th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #ddd; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #ddd; vertical-align: middle; }
     th { background: #f5f5f5; }
     .confidence { color: #888; }
+    .thumb { width: 120px; height: 70px; object-fit: cover; border-radius: 3px; cursor: pointer; }
+    .ts { font-family: monospace; font-size: 0.95rem; }
+    .copy-btn { font-size: 0.75rem; color: #888; border: none; background: none; cursor: pointer; padding: 0 4px; }
+    .copy-btn:hover { color: #333; }
   </style>
 </head>
 <body>
@@ -29,23 +33,32 @@
   <table>
     <thead>
       <tr>
-        <th>Video</th>
-        <th>Camera</th>
-        <th>Time (s)</th>
         <th>Frame</th>
+        <th>Camera</th>
+        <th>Timestamp</th>
         <th>Plate</th>
         <th>Confidence</th>
+        <th>Video</th>
       </tr>
     </thead>
     <tbody>
       {% for d in detections %}
       <tr>
-        <td>{{ d.video_file }}</td>
+        <td>
+          <img class="thumb"
+               src="/frame/{{ d.video_file }}/{{ d.frame_num }}"
+               alt="{{ d.plate_text }}"
+               loading="lazy"
+               onclick="this.style.width=this.style.width?'':'400px'">
+        </td>
         <td>{{ d.camera_id }}</td>
-        <td>{{ "%.1f"|format(d.timestamp_sec) }}</td>
-        <td>{{ d.frame_num }}</td>
+        <td>
+          <span class="ts">{{ d.timestamp_sec | timestamp }}</span>
+          <button class="copy-btn" onclick="navigator.clipboard.writeText('{{ d.timestamp_sec | timestamp }}')">⎘</button>
+        </td>
         <td><strong>{{ d.plate_text }}</strong></td>
         <td class="confidence">{{ "%.0f"|format(d.confidence * 100) }}%</td>
+        <td style="font-size:0.8rem;color:#aaa">{{ d.video_file }}</td>
       </tr>
       {% else %}
       <tr><td colspan="6" style="color:#999">No detections yet. Run processor.py first.</td></tr>
