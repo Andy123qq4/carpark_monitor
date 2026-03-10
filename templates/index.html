@@ -12,12 +12,7 @@
     th { background: #f5f5f5; }
     th.sortable { cursor: pointer; user-select: none; position: relative; padding-right: 20px; }
     th.sortable:hover { background: #e8e8e8; }
-    th.sortable::after { 
-      content: '⇅'; 
-      position: absolute; 
-      right: 5px; 
-      opacity: 0.3; 
-    }
+    th.sortable::after { content: '⇅'; position: absolute; right: 5px; opacity: 0.3; }
     th.sortable.asc::after { content: '↑'; opacity: 1; }
     th.sortable.desc::after { content: '↓'; opacity: 1; }
     .confidence { color: #888; }
@@ -25,55 +20,57 @@
     .ts { font-family: monospace; font-size: 0.95rem; }
     .copy-btn { font-size: 0.75rem; color: #888; border: none; background: none; cursor: pointer; padding: 0 4px; }
     .copy-btn:hover { color: #333; }
-    
-    /* Modal styles */
-    .modal { 
-      display: none; 
-      position: fixed; 
-      z-index: 1000; 
-      left: 0; 
-      top: 0; 
-      width: 100%; 
-      height: 100%; 
-      background-color: rgba(0,0,0,0.9);
-    }
-    .modal-content { 
-      margin: auto; 
-      display: block; 
-      max-width: 90%; 
-      max-height: 90vh; 
-      margin-top: 2%;
-    }
-    .modal-close { 
-      position: absolute; 
-      top: 20px; 
-      right: 35px; 
-      color: #fff; 
-      font-size: 40px; 
-      font-weight: bold; 
-      cursor: pointer;
-    }
+    .play-btn { font-size: 0.85rem; border: 1px solid #ccc; background: #fff; border-radius: 3px; cursor: pointer; padding: 2px 6px; }
+    .play-btn:hover { background: #f0f0f0; }
+
+    /* Toolbar */
+    .toolbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+    .live-btn { padding: 0.4rem 0.8rem; background: #28a745; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+    .live-btn:hover { background: #218838; }
+    .live-btn.active { background: #dc3545; }
+    .live-status { font-size: 0.85rem; color: #555; }
+    .progress-bar-wrap { flex: 1; min-width: 120px; max-width: 200px; height: 8px; background: #eee; border-radius: 4px; overflow: hidden; display: none; }
+    .progress-bar { height: 100%; background: #28a745; width: 0%; transition: width 0.3s; }
+
+    /* New row highlight */
+    @keyframes flashNew { from { background: #d4edda; } to { background: transparent; } }
+    .row-new { animation: flashNew 2s ease-out forwards; }
+
+    /* Image modal */
+    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.9); }
+    .modal-content { margin: auto; display: block; max-width: 90%; max-height: 90vh; margin-top: 2%; }
+    .modal-close { position: absolute; top: 20px; right: 35px; color: #fff; font-size: 40px; font-weight: bold; cursor: pointer; }
     .modal-close:hover { color: #bbb; }
-    .modal-caption {
-      text-align: center;
-      color: #ccc;
-      padding: 10px;
-      font-size: 1rem;
-    }
+    .modal-caption { text-align: center; color: #ccc; padding: 10px; font-size: 1rem; }
+
+    /* Clip modal */
+    #clipModal { display: none; position: fixed; z-index: 1001; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.92); flex-direction: column; align-items: center; justify-content: center; }
+    #clipModal.open { display: flex; }
+    #clipModal .modal-close { position: absolute; top: 20px; right: 35px; }
+    #clipImg { max-width: 92vw; max-height: 80vh; border-radius: 4px; }
+    #clipCaption { color: #ccc; font-size: 1rem; margin-top: 10px; text-align: center; }
+    #clipLoading { color: #aaa; font-size: 1rem; position: absolute; }
   </style>
 </head>
 <body>
   <h1>Carpark Monitor — Plate Detections</h1>
 
-  <form method="get">
-    <select name="video">
-      <option value="">All videos</option>
-      {% for v in videos %}
-        <option value="{{ v }}" {% if v == selected_video %}selected{% endif %}>{{ v }}</option>
-      {% endfor %}
-    </select>
-    <button type="submit">Filter</button>
-  </form>
+  <div class="toolbar">
+    <form method="get" style="display:contents">
+      <select name="video" id="videoSelect">
+        <option value="">All videos</option>
+        {% for v in videos %}
+          <option value="{{ v }}" {% if v == selected_video %}selected{% endif %}>{{ v }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">Filter</button>
+    </form>
+    <button class="live-btn" id="liveBtn" onclick="toggleLive()">▶ Process Live</button>
+    <span class="live-status" id="liveStatus"></span>
+    <div class="progress-bar-wrap" id="progressWrap">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+  </div>
 
   <table id="detectionsTable">
     <thead>
@@ -86,7 +83,7 @@
         <th>Video</th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="tableBody">
       {% for s in detections %}
       {% set d = s.detection %}
       <tr data-timestamp="{{ d.timestamp_sec }}" data-confidence="{{ d.confidence }}">
@@ -95,15 +92,18 @@
                src="/detections/{{ d.camera_id }}_{{ d.frame_num }}_{{ d.plate_text }}_crop.jpg"
                alt="{{ d.plate_text }}"
                loading="lazy"
-               onclick="openModal('/detections/{{ d.camera_id }}_{{ d.frame_num }}_{{ d.plate_text }}.jpg', '{{ d.plate_text }}', {{ d.confidence }})"
-               onerror="this.src='/detections/{{ d.camera_id }}_{{ d.frame_num }}_{{ d.plate_text }}.jpg'">
+               onclick="openImageModal('/detections/{{ d.camera_id }}_{{ d.frame_num }}_{{ d.plate_text }}_crop.jpg', '{{ d.plate_text }}', {{ d.confidence }})">
         </td>
         <td>{{ d.camera_id }}</td>
         <td>
           <span class="ts">{{ d.timestamp_sec | timestamp }}</span>
           <button class="copy-btn" onclick="navigator.clipboard.writeText('{{ d.timestamp_sec | timestamp }}')">⎘</button>
         </td>
-        <td><strong>{{ d.plate_text }}</strong></td>
+        <td>
+          <strong>{{ d.plate_text }}</strong>
+          <button class="play-btn" onclick="openClip('{{ d.video_file }}', {{ d.timestamp_sec }}, '{{ d.plate_text }}', {{ d.frame_num }})">▶</button>
+          <button class="play-btn" onclick="launchViewer('{{ d.video_file }}', {{ d.timestamp_sec }})" title="Open in desktop viewer">👁</button>
+        </td>
         <td class="confidence">{{ "%.0f"|format(d.confidence * 100) }}% <span style="color:#bbb;font-size:0.8rem">({{ s.frame_count }}f)</span></td>
         <td style="font-size:0.8rem;color:#aaa">{{ d.video_file }}</td>
       </tr>
@@ -113,77 +113,203 @@
     </tbody>
   </table>
 
-  <!-- Modal for full-size annotated frame -->
-  <div id="imageModal" class="modal" onclick="closeModal()">
-    <span class="modal-close" onclick="closeModal()">&times;</span>
+  <!-- Image modal (thumbnail click) -->
+  <div id="imageModal" class="modal" onclick="closeImageModal()">
+    <span class="modal-close" onclick="closeImageModal()">&times;</span>
     <img class="modal-content" id="modalImage">
     <div class="modal-caption" id="modalCaption"></div>
   </div>
 
-  <script>
-    function openModal(imgUrl, plateText, confidence) {
-      const modal = document.getElementById('imageModal');
-      const img = document.getElementById('modalImage');
-      const caption = document.getElementById('modalCaption');
+  <!-- Clip modal (MJPEG stream) -->
+  <div id="clipModal" onclick="closeClip()">
+    <span class="modal-close" onclick="closeClip()">&times;</span>
+    <span id="clipLoading">Loading clip...</span>
+    <img id="clipImg" alt="" style="display:none" onload="document.getElementById('clipLoading').style.display='none';this.style.display='block'">
+    <div id="clipCaption"></div>
+  </div>
 
-      img.src = imgUrl;
-      caption.textContent = `${plateText} - ${(confidence * 100).toFixed(0)}% confidence`;
-      modal.style.display = 'block';
+  <script>
+    // ── Image modal ───────────────────────────────────────────────
+    function openImageModal(imgUrl, plateText, confidence) {
+      document.getElementById('modalImage').src = imgUrl;
+      document.getElementById('modalCaption').textContent = `${plateText} — ${(confidence * 100).toFixed(0)}% confidence`;
+      document.getElementById('imageModal').style.display = 'block';
     }
-    
-    function closeModal() {
+    function closeImageModal() {
       document.getElementById('imageModal').style.display = 'none';
     }
-    
-    // Close on Escape key
-    document.addEventListener('keydown', function(event) {
-      if (event.key === 'Escape') {
-        closeModal();
+
+    // ── Clip modal (MJPEG) ────────────────────────────────────────
+    function openClip(videoFile, ts, plate, frameNum) {
+      const url = `/api/clip/${encodeURIComponent(videoFile)}?ts=${ts}&plate=${encodeURIComponent(plate)}&frame_num=${frameNum}`;
+      const img = document.getElementById('clipImg');
+      const loading = document.getElementById('clipLoading');
+      img.style.display = 'none';
+      loading.style.display = 'block';
+      img.src = url;
+      document.getElementById('clipCaption').textContent =
+        `${plate} · ${formatTs(ts)} · ${videoFile}`;
+      document.getElementById('clipModal').classList.add('open');
+    }
+    function closeClip() {
+      document.getElementById('clipModal').classList.remove('open');
+      // Stop MJPEG stream by clearing src
+      document.getElementById('clipImg').src = '';
+      document.getElementById('clipImg').style.display = 'none';
+      document.getElementById('clipLoading').style.display = 'block';
+    }
+
+    // ── Desktop viewer launch ─────────────────────────────────────
+    function launchViewer(videoFile, ts) {
+      fetch(`/api/viewer?video=${encodeURIComponent(videoFile)}&ts=${ts}`, { method: 'POST' })
+        .then(r => r.json())
+        .then(d => console.log('Viewer launched:', d));
+    }
+
+    // ── Live processing (SSE) ─────────────────────────────────────
+    let liveSource = null;
+
+    function toggleLive() {
+      if (liveSource) {
+        stopLive();
+      } else {
+        startLive();
+      }
+    }
+
+    function startLive() {
+      const video = document.getElementById('videoSelect').value;
+      if (!video) {
+        alert('Please select a specific video to process live.');
+        return;
+      }
+      const btn = document.getElementById('liveBtn');
+      const status = document.getElementById('liveStatus');
+      const progressWrap = document.getElementById('progressWrap');
+      const progressBar = document.getElementById('progressBar');
+
+      btn.textContent = '⏹ Stop';
+      btn.classList.add('active');
+      status.textContent = 'Connecting...';
+      progressWrap.style.display = 'block';
+      progressBar.style.width = '0%';
+
+      liveSource = new EventSource(`/api/realtime?video=${encodeURIComponent(video)}`);
+
+      liveSource.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        if (data.status === 'started') {
+          status.textContent = 'Processing...';
+          return;
+        }
+        if (data.status === 'done') {
+          status.textContent = 'Done!';
+          progressBar.style.width = '100%';
+          stopLive();
+          return;
+        }
+        // Update progress
+        if (data.progress !== undefined) {
+          progressBar.style.width = data.progress + '%';
+          status.textContent = `${data.progress.toFixed(0)}% — last: ${data.plate}`;
+        }
+        // Prepend new detection row
+        prependRow(data);
+      };
+
+      liveSource.onerror = function() {
+        status.textContent = 'Stream ended.';
+        stopLive();
+      };
+    }
+
+    function stopLive() {
+      if (liveSource) {
+        liveSource.close();
+        liveSource = null;
+      }
+      const btn = document.getElementById('liveBtn');
+      btn.textContent = '▶ Process Live';
+      btn.classList.remove('active');
+      document.getElementById('progressWrap').style.display = 'none';
+    }
+
+    function prependRow(d) {
+      const tbody = document.getElementById('tableBody');
+      const row = document.createElement('tr');
+      row.classList.add('row-new');
+      row.dataset.timestamp = d.timestamp_sec;
+      row.dataset.confidence = d.confidence;
+      const cropSrc = `/detections/${escHtml(d.camera_id)}_${d.frame_num}_${escHtml(d.plate)}_crop.jpg`;
+      const ts = formatTs(d.timestamp_sec);
+      const conf = (d.confidence * 100).toFixed(0);
+      row.innerHTML = `
+        <td><img class="thumb" src="${cropSrc}" alt="${escHtml(d.plate)}" loading="lazy"
+             onclick="openImageModal('${cropSrc}', '${escHtml(d.plate)}', ${d.confidence})"></td>
+        <td>${escHtml(d.camera_id)}</td>
+        <td><span class="ts">${ts}</span>
+            <button class="copy-btn" onclick="navigator.clipboard.writeText('${ts}')">⎘</button></td>
+        <td><strong>${escHtml(d.plate)}</strong>
+            <button class="play-btn" onclick="openClip('${escHtml(d.video_file)}', ${d.timestamp_sec}, '${escHtml(d.plate)}', ${d.frame_num})">▶</button></td>
+        <td class="confidence">${conf}%</td>
+        <td style="font-size:0.8rem;color:#aaa">${escHtml(d.video_file)}</td>
+      `;
+      // Remove "no detections" placeholder if present
+      const placeholder = tbody.querySelector('td[colspan]');
+      if (placeholder) placeholder.closest('tr').remove();
+      tbody.prepend(row);
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────
+    function escHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+
+    function formatTs(sec) {
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = Math.floor(sec % 60);
+      return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    }
+
+    // ── Keyboard shortcuts ────────────────────────────────────────
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        closeImageModal();
+        closeClip();
       }
     });
 
-    // Table sorting
+    // ── Table sorting ─────────────────────────────────────────────
     let currentSort = { column: null, direction: 'asc' };
 
     function sortTable(column) {
       const table = document.getElementById('detectionsTable');
       const tbody = table.querySelector('tbody');
-      const rows = Array.from(tbody.querySelectorAll('tr')).filter(row => row.cells.length > 1);
-      
-      // Toggle sort direction
+      const rows = Array.from(tbody.querySelectorAll('tr')).filter(r => r.cells.length > 1);
+
       if (currentSort.column === column) {
         currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
       } else {
         currentSort.column = column;
         currentSort.direction = 'asc';
       }
-      
-      // Sort rows
+
       rows.sort((a, b) => {
-        const aValue = parseFloat(a.dataset[column]);
-        const bValue = parseFloat(b.dataset[column]);
-        
-        if (currentSort.direction === 'asc') {
-          return aValue - bValue;
-        } else {
-          return bValue - aValue;
-        }
+        const av = parseFloat(a.dataset[column]);
+        const bv = parseFloat(b.dataset[column]);
+        return currentSort.direction === 'asc' ? av - bv : bv - av;
       });
-      
-      // Re-append sorted rows
-      rows.forEach(row => tbody.appendChild(row));
-      
-      // Update header indicators
-      table.querySelectorAll('th.sortable').forEach(th => {
-        th.classList.remove('asc', 'desc');
-      });
-      
-      const activeHeader = Array.from(table.querySelectorAll('th.sortable')).find(th => 
+
+      rows.forEach(r => tbody.appendChild(r));
+
+      table.querySelectorAll('th.sortable').forEach(th => th.classList.remove('asc', 'desc'));
+      const active = Array.from(table.querySelectorAll('th.sortable')).find(th =>
         th.textContent.toLowerCase().includes(column)
       );
-      if (activeHeader) {
-        activeHeader.classList.add(currentSort.direction);
-      }
+      if (active) active.classList.add(currentSort.direction);
     }
   </script>
 </body>
