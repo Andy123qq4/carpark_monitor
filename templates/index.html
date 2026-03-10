@@ -87,7 +87,8 @@
       </tr>
     </thead>
     <tbody>
-      {% for d in detections %}
+      {% for s in detections %}
+      {% set d = s.detection %}
       <tr data-timestamp="{{ d.timestamp_sec }}" data-confidence="{{ d.confidence }}">
         <td>
           <img class="thumb"
@@ -103,7 +104,7 @@
           <button class="copy-btn" onclick="navigator.clipboard.writeText('{{ d.timestamp_sec | timestamp }}')">⎘</button>
         </td>
         <td><strong>{{ d.plate_text }}</strong></td>
-        <td class="confidence">{{ "%.0f"|format(d.confidence * 100) }}%</td>
+        <td class="confidence">{{ "%.0f"|format(d.confidence * 100) }}% <span style="color:#bbb;font-size:0.8rem">({{ s.frame_count }}f)</span></td>
         <td style="font-size:0.8rem;color:#aaa">{{ d.video_file }}</td>
       </tr>
       {% else %}

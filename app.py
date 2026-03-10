@@ -27,7 +27,7 @@ db.init_db()
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, video: str | None = None):
-    detections = db.get_detections(video_file=video)
+    detections = db.get_plate_sessions(video_file=video)
     with db.get_conn() as conn:
         videos = [r["video_file"] for r in conn.execute(
             "SELECT DISTINCT video_file FROM detections ORDER BY video_file"
