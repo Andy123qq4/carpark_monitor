@@ -21,27 +21,28 @@ def levenshtein(s1: str, s2: str) -> int:
 def char_similarity(a: str, b: str) -> bool:
     """Check if two characters are commonly confused in OCR."""
     confusions = {
-        'V': 'ANBHM',  # V looks like A, N, B, H, M
-        'D': 'O0',     # D looks like O, 0
-        'O': 'D0Q',    # O looks like D, 0, Q
-        '0': 'ODQ',    # 0 looks like O, D, Q
-        '8': '93658B', # 8 looks like 9, 3, 6, 5, B
-        '9': '8',      # 9 looks like 8
-        '6': '8G5',    # 6 looks like 8, G, 5
-        '5': 'S86',    # 5 looks like S, 8, 6
-        'S': '5',      # S looks like 5
-        '3': '8B',     # 3 looks like 8, B
-        'B': '8',      # B looks like 8
-        '1': 'I7',     # 1 looks like I, 7
-        'I': '1',      # I looks like 1
-        '7': '1',      # 7 looks like 1
-        '2': 'Z',      # 2 looks like Z
-        'Z': '2',      # Z looks like 2
-        '4': 'A',      # 4 looks like A
-        'A': 'V4',     # A looks like V, 4
-        'N': 'V',      # N looks like V
-        'H': 'V',      # H looks like V
-        'M': 'V',      # M looks like V
+        'V': 'ANBHM',    # V looks like A, N, B, H, M
+        'D': 'O0',       # D looks like O, 0
+        'O': 'D0Q',      # O looks like D, 0, Q
+        '0': 'ODQ86',    # 0 looks like O, D, Q, 8, 6
+        '8': '93658B0',  # 8 looks like 9, 3, 6, 5, B, 0
+        '9': '8',        # 9 looks like 8
+        '6': '8G50',     # 6 looks like 8, G, 5, 0
+        '5': 'S86',      # 5 looks like S, 8, 6
+        'S': '5',        # S looks like 5
+        '3': '8B',       # 3 looks like 8, B
+        'B': '8',        # B looks like 8
+        '1': 'I7',       # 1 looks like I, 7
+        'I': '1',        # I looks like 1
+        '7': '1Z',       # 7 looks like 1, Z
+        '2': 'Z',        # 2 looks like Z
+        'Z': '27',       # Z looks like 2, 7
+        '4': 'A',        # 4 looks like A
+        'A': 'V4',       # A looks like V, 4
+        'N': 'VW',       # N looks like V, W
+        'H': 'V',        # H looks like V
+        'M': 'VWN',      # M looks like V, W, N
+        'W': 'MN',       # W looks like M, N
     }
     if a == b:
         return True
@@ -49,46 +50,78 @@ def char_similarity(a: str, b: str) -> bool:
 
 
 def plates_similar(p1: str, p2: str) -> bool:
-    """Check if two plates are likely the same with OCR errors."""
-    # Remove spaces for comparison
-    p1_clean = p1.replace(' ', '')
-    p2_clean = p2.replace(' ', '')
-    
-    # Must be same length
-    if len(p1_clean) != len(p2_clean):
-        return False
-    
-    # Count character differences
-    diffs = [(a, b) for a, b in zip(p1_clean, p2_clean) if a != b]
-    
-    # Same plate
-    if len(diffs) == 0:
+    """Check if two plates are likely the same with OCR errors.
+
+    For same-length plates: levenshtein ≤ 2 AND all differing chars must be confusable.
+    For different-length plates: levenshtein ≤ 2 (handles dropped/inserted chars).
+    """
+    p1 = p1.replace(' ', '')
+    p2 = p2.replace(' ', '')
+
+    if p1 == p2:
         return True
-    
-    # Allow up to 3 character differences (HK plates are 4-6 chars)
-    # but ALL differences must be confusable characters
-    if len(diffs) > 3:
+    if levenshtein(p1, p2) > 2:
         return False
-    
-    # Check if all differences are confusable characters
+    if len(p1) != len(p2):
+        return True  # within edit distance — accept length variation
+
+    # Same length: require all diffs to be confusable character pairs
+    diffs = [(a, b) for a, b in zip(p1, p2) if a != b]
     return all(char_similarity(a, b) for a, b in diffs)
+
+
+def normalize_plate(text: str) -> str:
+    """Apply position-aware correction for HK plate format [A-Z]{1,2}[0-9]{1,4}.
+
+    At letter positions (0–1): correct digit lookalikes → letters (e.g. 8→B, 0→O).
+    At digit positions (2+): correct letter lookalikes → digits (e.g. B→8, O→0).
+    """
+    text = text.replace(' ', '').upper()
+    if not text:
+        return text
+
+    DIGIT_TO_LETTER = {'0': 'O', '1': 'I', '2': 'Z', '4': 'A', '5': 'S', '6': 'G', '8': 'B'}
+    LETTER_TO_DIGIT = {'O': '0', 'I': '1', 'Z': '2', 'A': '4', 'S': '5', 'G': '6', 'B': '8'}
+
+    # Detect letter/digit boundary: find first pure digit char at index >= 1
+    # (skip index 0 — HK plates always start with at least one letter, even if OCR misread it)
+    split = len(text)
+    for i, c in enumerate(text):
+        if c.isdigit() and i >= 1:
+            split = i
+            break
+    # If no pure digit found, check for letter-in-digit-position lookalikes
+    if split == len(text):
+        for i, c in enumerate(text):
+            if c in LETTER_TO_DIGIT and i >= 1:
+                split = i
+                break
+    # Clamp to valid HK prefix range [1, 2]
+    split = max(1, min(2, split))
+
+    result = []
+    for i, c in enumerate(text):
+        if i < split:
+            result.append(DIGIT_TO_LETTER.get(c, c))
+        else:
+            result.append(LETTER_TO_DIGIT.get(c, c))
+    return ''.join(result)
 
 
 def deduplicate_detections(detections: list[tuple[str, float, tuple]]) -> list[tuple[str, float, tuple]]:
     """Group similar plate readings and return the highest-confidence one per group.
     Input: [(plate_text, confidence, bbox), ...]
     Output: deduplicated list with best reading per physical plate"""
-    
+
     if not detections:
         return []
-    
+
     # Sort by confidence descending
     detections = sorted(detections, key=lambda x: x[1], reverse=True)
-    
+
     # Group similar plates
     groups: list[list[tuple]] = []
     for text, conf, bbox in detections:
-        # Find existing group this belongs to
         found = False
         for group in groups:
             if any(plates_similar(text, g[0]) for g in group):
@@ -97,20 +130,18 @@ def deduplicate_detections(detections: list[tuple[str, float, tuple]]) -> list[t
                 break
         if not found:
             groups.append([(text, conf, bbox)])
-    
-    # Return the highest-confidence detection from each group
+
     result = []
     for group in groups:
         best = max(group, key=lambda x: x[1])
         result.append(best)
-    
+
     return result
 
 
 def apply_confidence_threshold(detections: list[tuple[str, float, tuple]], min_conf: float = 0.7) -> list[tuple[str, float, tuple]]:
     """Filter out low-confidence detections."""
     return [(text, conf, bbox) for text, conf, bbox in detections if conf >= min_conf]
-
 
 
 class TemporalTracker:
@@ -165,10 +196,11 @@ class TemporalTracker:
         return result
 
     def _vote(self, reads: list[tuple]) -> tuple:
-        """Pick winning plate text by summing confidence scores; return best individual read."""
+        """Pick winning plate text by summing confidence scores, then normalize."""
         votes: dict[str, float] = {}
         for text, conf, *_ in reads:
             votes[text] = votes.get(text, 0.0) + conf
         best_text = max(votes, key=votes.get)
-        return max((r for r in reads if r[0] == best_text), key=lambda r: r[1])
-
+        best = max((r for r in reads if r[0] == best_text), key=lambda r: r[1])
+        normalized = normalize_plate(best_text)
+        return (normalized,) + best[1:]
