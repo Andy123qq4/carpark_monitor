@@ -40,6 +40,13 @@ def init_db():
             conn.execute("ALTER TABLE detections ADD COLUMN bbox_h INTEGER")
             print("✓ Added bbox columns to existing detections table")
         conn.execute("""
+            DELETE FROM detections
+            WHERE id NOT IN (
+                SELECT MIN(id) FROM detections
+                GROUP BY video_file, frame_num, plate_text
+            )
+        """)
+        conn.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_dedup
             ON detections(video_file, frame_num, plate_text)
         """)
