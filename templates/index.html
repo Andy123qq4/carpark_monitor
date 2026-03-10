@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Carpark Monitor</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; max-width: 900px; margin: 0 auto; }
+    h1 { font-size: 1.4rem; }
+    select, button { padding: 0.4rem 0.8rem; margin-right: 0.5rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #ddd; }
+    th { background: #f5f5f5; }
+    .confidence { color: #888; }
+  </style>
+</head>
+<body>
+  <h1>Carpark Monitor — Plate Detections</h1>
+
+  <form method="get">
+    <select name="video">
+      <option value="">All videos</option>
+      {% for v in videos %}
+        <option value="{{ v }}" {% if v == selected_video %}selected{% endif %}>{{ v }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Filter</button>
+  </form>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Video</th>
+        <th>Camera</th>
+        <th>Time (s)</th>
+        <th>Frame</th>
+        <th>Plate</th>
+        <th>Confidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in detections %}
+      <tr>
+        <td>{{ d.video_file }}</td>
+        <td>{{ d.camera_id }}</td>
+        <td>{{ "%.1f"|format(d.timestamp_sec) }}</td>
+        <td>{{ d.frame_num }}</td>
+        <td><strong>{{ d.plate_text }}</strong></td>
+        <td class="confidence">{{ "%.0f"|format(d.confidence * 100) }}%</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" style="color:#999">No detections yet. Run processor.py first.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>
