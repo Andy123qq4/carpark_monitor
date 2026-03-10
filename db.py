@@ -8,7 +8,9 @@ from pathlib import Path
 DB_PATH = Path("data/carpark.db")
 
 def get_conn():
-    return sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 def init_db():
     DB_PATH.parent.mkdir(exist_ok=True)
@@ -35,7 +37,6 @@ def save_detection(video_file, camera_id, frame_num, timestamp_sec, plate_text, 
 
 def get_detections(video_file=None):
     with get_conn() as conn:
-        conn.row_factory = sqlite3.Row
         if video_file:
             return conn.execute(
                 "SELECT * FROM detections WHERE video_file=? ORDER BY timestamp_sec", (video_file,)
