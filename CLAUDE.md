@@ -25,16 +25,22 @@ uvicorn app:app --reload
 
 **File naming**: `data/detections/{camera_id}_{frame_num}_{plate_text}_crop.jpg` (plate crop only — full annotated frames removed).
 
-## ⚠️ AVI FPS Bug
+## ⚠️ AVI FPS Bug + MP4 Conversion
 
-The AVI files from this camera system report wrong fps in the container header. **Always use the MP4 versions** (converted via `ffmpeg -c:v libx264`):
+The AVI files from this camera system report **wrong fps in the container header** (all claim 30fps). The actual fps varies per camera and was verified by ffmpeg re-encoding, which reads per-frame timestamps from the stream.
 
-| Camera | AVI fps (wrong) | Actual fps | Video file to use |
-|---|---|---|---|
-| GF15 | 30 | 12.5 | `GF15 20260212 142142-145519.mp4` |
-| GF16 | 30 | 30 ✅ | `GF16 20260213 102959-104800.avi` (AVI is fine) |
-| GF17 | 30 | 15 | `GF17 20260212 142152-145500.mp4` |
-| GF18 | 30 | 15 | `GF18 20260213 102947-104800.mp4` |
+**Policy**: AVI files are kept as raw archive. All processing uses MP4 only. MP4 also decodes ~31% faster than AVI (benchmarked: 1116 vs 850 frames/sec).
+
+Convert with: `ffmpeg -i input.avi -c:v libx264 -crf 18 -preset fast -an output.mp4`
+
+| Camera | AVI claimed fps | Actual fps | Frames (MP4) | MP4 file |
+|---|---|---|---|---|
+| GF15 | 30 | 12.5 | 25,215 | `GF15 20260212 142142-145519.mp4` |
+| GF16 | 30 | ~30 | 32,376 | `GF16 20260213 102959-104800.mp4` |
+| GF17 | 30 | 15 | 29,828 | `GF17 20260212 142152-145500.mp4` |
+| GF18 | 30 | 15 | ~16,410 | `GF18 20260213 102947-104800.mp4` |
+
+> Actual fps differs per camera because each was configured independently in the DVR. AVI headers are unreliable for this system — always use the MP4.
 
 ## Camera Notes
 
