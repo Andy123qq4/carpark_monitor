@@ -1,86 +1,126 @@
-# Accuracy Analysis — Camera GF15
+# Accuracy Analysis — All Cameras (Iteration 1, Post-P1)
 
-## Dataset
-
-| Field | Value |
-|---|---|
-| Camera | GF15 |
-| Video | `GF15 20260212 142142-145519.avi` |
-| Duration | 13.9 min |
-| Frames scanned | 25,215 (every 5th frame) |
-| Total detections saved | 189 |
-| Unique plate texts | 162 |
-
-> **No ground truth yet.** Accuracy figures below are observational — true precision/recall require manual verification (Task #6).
+> Last updated: 2026-03-10
+> Algorithm: P1 (multi-frame confidence voting) applied to all cameras.
+> No ground truth yet — figures are observational. True precision/recall require Task #6.
 
 ---
 
-## Confidence Distribution
+## Per-Camera Summary
 
-| Confidence | Count | % |
+| Camera | Video | Duration | Frames | Detections | Unique Plates | Avg Conf | Min Conf |
+|---|---|---|---|---|---|---|---|
+| GF15 | GF15 20260212 142142-145519.avi | 13.9 min | 25,215 | 189 | 162 | 0.86 | 0.62 |
+| GF16 | GF16 20260213 102959-104800.avi | 6.6 min  | ~11,880 | 32 | 32 | 0.85 | 0.72 |
+| GF17 | GF17 20260212 142152-145500.avi | 13.9 min | 29,828 | **7** | 7 | 0.86 | 0.70 |
+| GF18 | GF18 20260213 102947-104800.avi | 3.2 min  | 16,410 | 77 | 55 | 0.88 | 0.70 |
+
+**Total across all cameras**: 305 detections, 256 unique plate texts
+
+---
+
+## Per-Camera Analysis
+
+### GF15 — Richest data, most noise
+
+- 189 detections / 162 unique texts in 13.9 min (~13.6 plates/min)
+- Highest volume camera — most varied plate angles and distances
+- Most OCR noise observed: length-varying reads, char confusions
+- Example: `ZL9679` seen 5× (2 genuine visits + length variants `ZL967`)
+- **Confidence distribution**:
+
+| Bucket | Count | % |
 |---|---|---|
-| 0.95 – 1.00 | 40 | 21% |
-| 0.90 – 0.95 | 39 | 21% |
-| 0.85 – 0.90 | 28 | 15% |
-| 0.80 – 0.85 | 28 | 15% |
-| 0.75 – 0.80 | 23 | 12% |
-| 0.70 – 0.75 | 26 | 14% |
+| ≥ 0.95 | 40 | 21% |
+| 0.90–0.95 | 39 | 21% |
+| 0.85–0.90 | 28 | 15% |
+| 0.80–0.85 | 28 | 15% |
+| 0.75–0.80 | 23 | 12% |
+| 0.70–0.75 | 26 | 14% |
 | < 0.70 | 5 | 3% |
 
-- **Average confidence**: 0.86
-- **79% of reads are ≥ 0.80** — generally reliable zone
-- 5 reads below 0.70 are likely noise (short/partial plates)
+---
+
+### GF16 — Clean, low volume
+
+- 32 detections / 32 unique plates in 6.6 min (~4.8 plates/min)
+- All detections are unique texts — no apparent duplicates
+- Confidence floor 0.72 — no very-low-confidence noise
+- Likely a lower-traffic or more distant camera angle
+
+---
+
+### GF17 — ⚠️ Suspected poor camera angle
+
+- Only **7 plates in 13.9 min** (0.5 plates/min) — same duration as GF15 which got 189
+- All 7 detections clustered at ~90–91s and ~835s
+- Mostly variants of `ZL9679` (same plate as seen by GF15 at the same time ~90s)
+  - `ZL9679` (1.00), `LL9679` (0.94), `ZL977`, `ZL679`, `ZL4779`, `DL9774` — heavily noisy
+- **Root cause hypotheses**: camera pointing at a distant/narrow lane, bad lighting, or obstructed view
+- **Action needed**: physically inspect GF17 camera angle before using data for ground truth
+
+---
+
+### GF18 — ⚠️ Same plate stuck in frame
+
+- 77 detections but only 55 unique texts in 3.2 min
+- ~22 duplicate-text events — all variants of what is almost certainly **`WB6066`**
+  - Seen as: `WB6066`, `WB0066`, `AB6066`, `MB6066`, `WB6006`, `WB6060`, `WB0060`, etc. (20+ variants)
+- Plate appears for long durations at close range (bboxes 47–67px wide at rows 800–1000)
+  - Likely a **parked or slowly moving vehicle** directly in camera view
+- `VH703` (1.00), `VH763` (0.98) — clean reads for a separate vehicle
+- **Insight**: P2 (char correction) + length-tolerant similarity would collapse most `WB6066` variants into 1–2 rows
 
 ---
 
 ## Known Failure Modes
 
-### 1. Length-varying reads (same plate, different char count)
+### 1. Length-varying reads
 
-The similarity check (`plates_similar`) requires equal length, so different-length OCR errors form separate clusters.
+`plates_similar()` requires equal length — different-length OCR errors form separate clusters.
 
-| Likely same plate | Reads in DB |
+| Likely true plate | DB variants observed |
 |---|---|
-| `ZL9679` | `ZL9679` (×5), `ZL967` (×2) |
-| `WR7022` | `WR7022` (×3), `WR7922` (×2) |
-| `PD6715` | `PD6715` (×2), `PD671` (×2) |
+| `ZL9679` | `ZL9679`, `ZL967`, `ZL679`, `ZL977`, `ZL4779` |
+| `WB6066` | `WB6066`, `WB0066`, `WB6006`, `WB6060`, `WB606`, `AB6066`, `MB6066`, ... |
+| `WR7022` | `WR7022`, `WR7922`, `MR7022` |
 
-**Root cause**: Model occasionally drops or adds a digit when plate is far/small/angled.
-
-**Fix**: P2 — length-tolerant similarity using edit distance, or regex grammar enforcement.
+**Fix**: P2 — Levenshtein distance ≤ 1 for same-prefix plates, or HK grammar enforcement.
 
 ### 2. Char confusions not in current map
 
-| Observed pair | OCR confusion | In map? |
+| Observed pair | Confusion | In map? |
 |---|---|---|
-| `AX8999` / `AX0999` | `8` ↔ `0` | ❌ No |
-| `ZL9679` / `ZL3679` | `9` ↔ `3` | ❌ No |
-| `WR7022` / `MR7022` | `W` ↔ `M` | ❌ No |
-| `KN586` / `XN586` | `K` ↔ `X` | ❌ No |
+| `WB6066` / `MB6066` | `W` ↔ `M` | ❌ |
+| `WB6066` / `AB6066` | `W` ↔ `A` | ❌ |
+| `WB6066` / `WB0066` | `6` ↔ `0` | ❌ |
+| `AX8999` / `AX0999` | `8` ↔ `0` | ❌ |
+| `ZL9679` / `ZL3679` | `9` ↔ `3` | ❌ |
 
-**Fix**: P2 — expand confusion map, or use position-aware HK grammar (`[A-Z]{1,2}[0-9]{1,4}`).
+**Fix**: P2 — expand confusion map: add `W↔M↔N↔H`, `6↔0↔8`, `9↔3`.
 
-### 3. Same plate, multiple legitimate re-entries
+### 3. GF17 near-zero detections
 
-`ZL9679` seen at 18.8s and again at 81.7s — this is a genuine re-entry (same vehicle drove in twice). The tracker correctly stores both as separate events. This is **correct behaviour**, not an error.
+Camera produces almost no valid reads. Either mechanical issue or poor placement.
 
 ---
 
 ## Improvement Roadmap
 
-| Priority | Fix | Expected impact |
+| Task | Fix | Status |
 |---|---|---|
-| ✅ P1 | Multi-frame confidence voting | Reduced duplicate rows per pass |
-| P2 | HK grammar + expanded confusion map | Merge more same-plate variants |
-| P3 | CLAHE preprocessing on crop | Better reads for dark/overexposed plates |
-| P4 | Plate Recognizer API trial | Baseline comparison (95%+ claimed) |
-| P5 | Fine-tune on HK plates | Only if P1–P4 insufficient |
-| #6 | Ground truth + `benchmark.py` | Enable objective metric tracking |
+| P1 | Multi-frame confidence voting | ✅ Done |
+| P2 | HK grammar + expanded confusion map + length tolerance | Pending |
+| P3 | CLAHE preprocessing on crops | Pending |
+| P4 | Plate Recognizer API trial | Pending |
+| P5 | Fine-tune on HK plates | Pending |
+| #6 | Ground truth + `benchmark.py` | Pending — needed before P2 measurement |
 
 ---
 
-## Limitations of This Analysis
+## Limitations
 
-- **Single camera angle** (GF15 only) — accuracy may differ significantly at other angles or lighting conditions
-- **Single 14-min video** — not representative of night, rain, or high-traffic conditions
-- **No ground truth** — all "failure modes" above are inferred from OCR patterns, not verified against real plates
+- **No ground truth** — all failure modes are inferred, not verified
+- **GF17 data is unreliable** — investigate camera before including in benchmark
+- **GF18 dominated by one parked vehicle** — not representative of typical traffic
+- **Single day of footage per camera** — does not capture night, rain, or rush-hour conditions
