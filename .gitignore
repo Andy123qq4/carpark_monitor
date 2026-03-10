@@ -1,0 +1,9 @@
+.omc/
+.superpowers
+
+.video
+.data
+data/carpark.db
+video/*.avi
+__pycache__/
+*.pyc
