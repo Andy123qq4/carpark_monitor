@@ -24,16 +24,35 @@ def init_db():
                 timestamp_sec REAL NOT NULL,
                 plate_text    TEXT NOT NULL,
                 confidence    REAL NOT NULL,
+                bbox_x        INTEGER,
+                bbox_y        INTEGER,
+                bbox_w        INTEGER,
+                bbox_h        INTEGER,
                 created_at    TEXT DEFAULT (datetime('now'))
             )
         """)
+        # Migration: add bbox columns if they don't exist
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(detections)")]
+        if 'bbox_x' not in columns:
+            conn.execute("ALTER TABLE detections ADD COLUMN bbox_x INTEGER")
+            conn.execute("ALTER TABLE detections ADD COLUMN bbox_y INTEGER")
+            conn.execute("ALTER TABLE detections ADD COLUMN bbox_w INTEGER")
+            conn.execute("ALTER TABLE detections ADD COLUMN bbox_h INTEGER")
+            print("✓ Added bbox columns to existing detections table")
 
-def save_detection(video_file, camera_id, frame_num, timestamp_sec, plate_text, confidence):
+def save_detection(video_file, camera_id, frame_num, timestamp_sec, plate_text, confidence, bbox=None):
     with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO detections (video_file, camera_id, frame_num, timestamp_sec, plate_text, confidence) VALUES (?,?,?,?,?,?)",
-            (video_file, camera_id, frame_num, timestamp_sec, plate_text, confidence)
-        )
+        if bbox:
+            x, y, w, h = bbox
+            conn.execute(
+                "INSERT INTO detections (video_file, camera_id, frame_num, timestamp_sec, plate_text, confidence, bbox_x, bbox_y, bbox_w, bbox_h) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (video_file, camera_id, frame_num, timestamp_sec, plate_text, confidence, x, y, w, h)
+            )
+        else:
+            conn.execute(
+                "INSERT INTO detections (video_file, camera_id, frame_num, timestamp_sec, plate_text, confidence) VALUES (?,?,?,?,?,?)",
+                (video_file, camera_id, frame_num, timestamp_sec, plate_text, confidence)
+            )
 
 def get_detections(video_file=None):
     with get_conn() as conn:
