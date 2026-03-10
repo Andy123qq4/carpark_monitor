@@ -16,15 +16,19 @@ import detection
 
 DETECTION_DIR = Path("data/detections")
 
-def save_annotated_frame(frame, bbox, text, conf, camera_id, frame_num):
+def extract_crop(frame, bbox):
     if not bbox:
         return None
-    DETECTION_DIR.mkdir(parents=True, exist_ok=True)
     x, y, w, h = bbox
     pad = 4
     crop = frame[max(0, y - pad):y + h + pad, max(0, x - pad):x + w + pad]
-    if crop.size == 0:
+    return crop if crop.size > 0 else None
+
+
+def save_crop(crop, camera_id, frame_num, text):
+    if crop is None:
         return None
+    DETECTION_DIR.mkdir(parents=True, exist_ok=True)
     crop_path = DETECTION_DIR / f"{camera_id}_{frame_num}_{text}_crop.jpg"
     cv2.imwrite(str(crop_path), crop)
     return crop_path
@@ -44,6 +48,15 @@ def process_video(video_path: str):
 
     print(f"Processing {video_file} (camera: {camera_id}, fps: {fps:.1f})")
 
+    def emit(emissions):
+        nonlocal detected
+        for text, conf, bbox, crop, best_frame, best_ts in emissions:
+            db.save_detection(video_file, camera_id, best_frame, best_ts, text, conf, bbox)
+            img_path = save_crop(crop, camera_id, best_frame, text)
+            detected += 1
+            bbox_msg = f" bbox={bbox}" if bbox else " [no bbox]"
+            print(f"  [{best_ts:.1f}s] {text} ({conf:.2f}){bbox_msg} -> {img_path}")
+
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -52,15 +65,12 @@ def process_video(video_path: str):
         if frame_num % detector.frame_interval == 0:
             timestamp_sec = frame_num / fps
             raw = detector.detect_frame(frame)
-            for text, conf, bbox in tracker.update(raw, frame_num, timestamp_sec):
-                db.save_detection(video_file, camera_id, frame_num, timestamp_sec, text, conf, bbox)
-                img_path = save_annotated_frame(frame, bbox, text, conf, camera_id, frame_num)
-                detected += 1
-                bbox_msg = f" bbox={bbox}" if bbox else " [no bbox]"
-                print(f"  [{timestamp_sec:.1f}s] {text} ({conf:.2f}){bbox_msg} -> {img_path}")
+            detections = [(text, conf, bbox, extract_crop(frame, bbox)) for text, conf, bbox in raw]
+            emit(tracker.update(detections, frame_num, timestamp_sec))
 
         frame_num += 1
 
+    emit(tracker.flush())
     cap.release()
     print(f"Done. {frame_num} frames scanned, {detected} plates saved.")
 
