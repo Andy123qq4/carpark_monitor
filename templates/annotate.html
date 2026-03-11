@@ -84,7 +84,7 @@
   <div class="progress">
     视频: <strong>{{ selected_video }}</strong> &nbsp;|&nbsp;
     事件数: <span>{{ events|length }}</span> &nbsp;|&nbsp;
-    已标注: <span id="annotated-count">{{ gt.get(selected_video, {})|length }}</span> / {{ events|length }}
+    已标注: <span id="annotated-count">{{ annotated_count }}</span> / {{ events|length }}
   </div>
 
   {% for event in events %}

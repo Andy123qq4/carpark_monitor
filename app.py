@@ -75,12 +75,16 @@ def annotate(request: Request, video: str | None = None):
         ).fetchall()]
     events = db.get_annotation_events(video) if video else []
     gt = json.loads(GT_PATH.read_text()) if GT_PATH.exists() else {}
+    valid_event_ids = {str(e["event_id"]) for e in events}
+    gt_for_video = gt.get(video, {})
+    annotated_count = sum(1 for k in gt_for_video if k in valid_event_ids)
     return templates.TemplateResponse("annotate.html", {
         "request": request,
         "videos": videos,
         "selected_video": video,
         "events": events,
         "gt": gt,
+        "annotated_count": annotated_count,
     })
 
 
