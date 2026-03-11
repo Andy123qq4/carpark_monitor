@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>Benchmark</title>
+  <style>
+    body { font-family: monospace; background: #1a1a1a; color: #e0e0e0; margin: 0; padding: 16px; }
+    h1 { font-size: 1.1rem; color: #aaa; margin-bottom: 12px; }
+    .nav { margin-bottom: 16px; }
+    .nav a { color: #888; text-decoration: none; margin-right: 12px; font-size: 0.85rem; }
+    .nav a:hover { color: #ccc; }
+    select { background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; padding: 4px 8px; font-family: monospace; }
+
+    .summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .cam-card { border: 1px solid #333; border-radius: 4px; padding: 12px; background: #222; }
+    .cam-card h3 { font-size: 0.85rem; color: #aaa; margin: 0 0 10px 0; }
+
+    .metrics { display: flex; gap: 16px; margin-bottom: 10px; }
+    .metric { text-align: center; }
+    .metric-val { font-size: 1.5rem; font-weight: bold; }
+    .metric-lbl { font-size: 0.7rem; color: #888; }
+    .good  { color: #4caf50; }
+    .mid   { color: #ff9800; }
+    .bad   { color: #f44336; }
+
+    .plate-group { margin-top: 8px; font-size: 0.78rem; }
+    .plate-group-label { color: #666; font-size: 0.7rem; margin-bottom: 2px; }
+    .plate-tag { display: inline-block; padding: 1px 7px; border-radius: 3px; margin: 2px; font-size: 0.75rem; }
+    .tp-tag { background: #1e3a1e; color: #7ec87e; border: 1px solid #2d5a2d; }
+    .fp-tag { background: #3a1e1e; color: #c87e7e; border: 1px solid #5a2d2d; }
+    .fn-tag { background: #3a311e; color: #c8b07e; border: 1px solid #5a4a2d; }
+
+    .no-gt { color: #555; font-size: 0.85rem; padding: 20px 0; }
+    .overall { border: 1px solid #555; border-radius: 4px; padding: 12px; margin-bottom: 20px; background: #1e1e1e; }
+    .overall h2 { font-size: 0.9rem; color: #aaa; margin: 0 0 10px 0; }
+    .overall .metrics .metric-val { font-size: 2rem; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/">← 主页</a>
+    <a href="/annotate">✏ 标注</a>
+  </div>
+  <h1>📊 Benchmark — Pipeline vs Ground Truth</h1>
+
+  {% if not gt_exists %}
+  <p class="no-gt">⚠ 尚未有 Ground Truth 数据。请先到 <a href="/annotate" style="color:#888">标注页</a> 完成标注。</p>
+  {% elif not results %}
+  <p class="no-gt">当前视频还没有 GT 标注。请先到 <a href="/annotate" style="color:#888">标注页</a> 完成标注。</p>
+  {% else %}
+
+  {% if results|length > 1 %}
+  {% set all_tp = results.values()|sum(attribute='tp')|list|unique|list %}
+  {% set total_gt = results.values()|map(attribute='gt_count')|sum %}
+  {% set total_det = results.values()|map(attribute='detected_count')|sum %}
+  {% set total_tp_n = results.values()|map(attribute='tp')|map('length')|sum %}
+  {% set total_fp_n = results.values()|map(attribute='fp')|map('length')|sum %}
+  {% set total_fn_n = results.values()|map(attribute='fn')|map('length')|sum %}
+  {% set overall_p = (total_tp_n / total_det) if total_det else 0 %}
+  {% set overall_r = (total_tp_n / total_gt) if total_gt else 0 %}
+  {% set overall_f1 = (2 * overall_p * overall_r / (overall_p + overall_r)) if (overall_p + overall_r) else 0 %}
+  <div class="overall">
+    <h2>综合指标 (全部摄像头)</h2>
+    <div class="metrics">
+      <div class="metric">
+        <div class="metric-val {% if overall_p >= 0.9 %}good{% elif overall_p >= 0.7 %}mid{% else %}bad{% endif %}">{{ "%.0f%%"|format(overall_p*100) }}</div>
+        <div class="metric-lbl">Precision</div>
+      </div>
+      <div class="metric">
+        <div class="metric-val {% if overall_r >= 0.9 %}good{% elif overall_r >= 0.7 %}mid{% else %}bad{% endif %}">{{ "%.0f%%"|format(overall_r*100) }}</div>
+        <div class="metric-lbl">Recall</div>
+      </div>
+      <div class="metric">
+        <div class="metric-val {% if overall_f1 >= 0.9 %}good{% elif overall_f1 >= 0.7 %}mid{% else %}bad{% endif %}">{{ "%.0f%%"|format(overall_f1*100) }}</div>
+        <div class="metric-lbl">F1</div>
+      </div>
+      <div class="metric">
+        <div class="metric-val" style="color:#aaa">{{ total_gt }}</div>
+        <div class="metric-lbl">GT 车辆</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="summary-grid">
+    {% for vid, r in results.items() %}
+    <div class="cam-card">
+      <h3>{{ vid[:4] }} &nbsp;<span style="color:#555;font-size:0.75rem">{{ vid }}</span></h3>
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-val {% if r.precision >= 0.9 %}good{% elif r.precision >= 0.7 %}mid{% else %}bad{% endif %}">{{ "%.0f%%"|format(r.precision*100) }}</div>
+          <div class="metric-lbl">Precision</div>
+        </div>
+        <div class="metric">
+          <div class="metric-val {% if r.recall >= 0.9 %}good{% elif r.recall >= 0.7 %}mid{% else %}bad{% endif %}">{{ "%.0f%%"|format(r.recall*100) }}</div>
+          <div class="metric-lbl">Recall</div>
+        </div>
+        <div class="metric">
+          <div class="metric-val {% if r.f1 >= 0.9 %}good{% elif r.f1 >= 0.7 %}mid{% else %}bad{% endif %}">{{ "%.0f%%"|format(r.f1*100) }}</div>
+          <div class="metric-lbl">F1</div>
+        </div>
+        <div class="metric">
+          <div class="metric-val" style="color:#aaa">{{ r.gt_count }}</div>
+          <div class="metric-lbl">GT</div>
+        </div>
+      </div>
+
+      {% if r.tp %}
+      <div class="plate-group">
+        <div class="plate-group-label">✓ 正确 (TP {{ r.tp|length }})</div>
+        {% for p in r.tp %}<span class="plate-tag tp-tag">{{ p }}</span>{% endfor %}
+      </div>
+      {% endif %}
+      {% if r.fp %}
+      <div class="plate-group">
+        <div class="plate-group-label">✗ 误报 (FP {{ r.fp|length }})</div>
+        {% for p in r.fp %}<span class="plate-tag fp-tag">{{ p }}</span>{% endfor %}
+      </div>
+      {% endif %}
+      {% if r.fn %}
+      <div class="plate-group">
+        <div class="plate-group-label">? 漏检 (FN {{ r.fn|length }})</div>
+        {% for p in r.fn %}<span class="plate-tag fn-tag">{{ p }}</span>{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</body>
+</html>

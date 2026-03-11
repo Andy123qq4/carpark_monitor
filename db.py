@@ -1,5 +1,5 @@
 # INPUT: none (creates DB file on import)
-# OUTPUT: init_db(), save_detection(), get_detections(), get_plate_sessions(), merge_stationary_sessions()
+# OUTPUT: init_db(), save_detection(), get_detections(), get_plate_sessions(), merge_stationary_sessions(), get_annotation_events()
 # ROLE: data access layer — SQLite read/write for plate detections
 
 import math
@@ -181,3 +181,29 @@ def merge_stationary_sessions(
 
     result = [s for i, s in enumerate(items) if i not in to_remove]
     return sorted(result, key=lambda s: s["detection"]["timestamp_sec"], reverse=True)
+
+
+def get_annotation_events(video_file: str, gap_sec: float = 10.0) -> list[dict]:
+    rows = get_detections(video_file=video_file)
+    if not rows:
+        return []
+
+    events: list[list] = []
+    for row in sorted(rows, key=lambda r: r["timestamp_sec"]):
+        if not events or row["timestamp_sec"] - events[-1][-1]["timestamp_sec"] > gap_sec:
+            events.append([])
+        events[-1].append(row)
+
+    result = []
+    for i, group in enumerate(events):
+        result.append({
+            "event_id": i,
+            "video_file": video_file,
+            "start_ts": group[0]["timestamp_sec"],
+            "end_ts": group[-1]["timestamp_sec"],
+            "detections": [
+                {k: d[k] for k in d.keys()}
+                for d in sorted(group, key=lambda r: r["confidence"], reverse=True)
+            ],
+        })
+    return result

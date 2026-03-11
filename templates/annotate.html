@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>Ground Truth 标注</title>
+  <style>
+    body { font-family: monospace; background: #1a1a1a; color: #e0e0e0; margin: 0; padding: 16px; }
+    h1 { font-size: 1.1rem; color: #aaa; margin-bottom: 12px; }
+    .nav { margin-bottom: 16px; }
+    .nav a { color: #888; text-decoration: none; margin-right: 12px; font-size: 0.85rem; }
+    .nav a:hover { color: #ccc; }
+    select { background: #2a2a2a; color: #e0e0e0; border: 1px solid #444; padding: 4px 8px; font-family: monospace; }
+    .event-card {
+      border: 1px solid #333; border-radius: 4px; margin-bottom: 16px;
+      padding: 12px; background: #222;
+    }
+    .event-card.saved { border-color: #2d7a2d; }
+    .event-header { font-size: 0.8rem; color: #888; margin-bottom: 8px; }
+    .crops { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+    .crop-item { text-align: center; }
+    .crop-item img { height: 48px; border: 1px solid #444; border-radius: 2px; cursor: pointer; }
+    .crop-item img:hover { border-color: #888; }
+    .crop-label { font-size: 0.68rem; color: #888; margin-top: 2px; }
+    .conf-high { color: #4caf50; }
+    .conf-mid  { color: #ff9800; }
+    .conf-low  { color: #f44336; }
+    .input-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .plate-input {
+      background: #1a1a1a; color: #fff; border: 1px solid #555;
+      padding: 5px 10px; font-family: monospace; font-size: 1rem;
+      border-radius: 3px; width: 140px; text-transform: uppercase;
+    }
+    .plate-input:focus { outline: none; border-color: #4caf50; }
+    .note-input {
+      background: #1a1a1a; color: #aaa; border: 1px solid #333;
+      padding: 5px 8px; font-family: monospace; font-size: 0.8rem;
+      border-radius: 3px; width: 200px;
+    }
+    .btn-save {
+      background: #2d5a2d; color: #7ec87e; border: 1px solid #3a7a3a;
+      padding: 5px 14px; font-family: monospace; cursor: pointer; border-radius: 3px;
+    }
+    .btn-save:hover { background: #3a7a3a; }
+    .btn-skip {
+      background: #2a2a2a; color: #888; border: 1px solid #444;
+      padding: 5px 10px; font-family: monospace; cursor: pointer; border-radius: 3px;
+      font-size: 0.8rem;
+    }
+    .saved-badge { color: #4caf50; font-size: 0.8rem; }
+    .status-msg { font-size: 0.78rem; color: #888; margin-left: 8px; }
+    .suggest-btn {
+      font-size: 0.72rem; background: #1e3a1e; color: #7ec87e; border: 1px solid #2d5a2d;
+      padding: 2px 8px; border-radius: 3px; cursor: pointer; font-family: monospace;
+    }
+    .suggest-btn:hover { background: #2d5a2d; }
+    .img-modal {
+      display: none; position: fixed; z-index: 100; left: 0; top: 0;
+      width: 100%; height: 100%; background: rgba(0,0,0,0.85);
+      align-items: center; justify-content: center;
+    }
+    .img-modal.open { display: flex; }
+    .img-modal img { max-width: 80vw; max-height: 80vh; border: 2px solid #555; border-radius: 4px; }
+    .progress { font-size: 0.8rem; color: #888; margin-bottom: 12px; }
+    .progress span { color: #4caf50; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/">← 主页</a>
+    <a href="/benchmark">📊 Benchmark</a>
+  </div>
+  <h1>Ground Truth 标注</h1>
+
+  <form method="get" style="margin-bottom:16px;">
+    <select name="video" onchange="this.form.submit()">
+      <option value="">— 选择视频 —</option>
+      {% for v in videos %}
+      <option value="{{ v }}" {% if v == selected_video %}selected{% endif %}>{{ v }}</option>
+      {% endfor %}
+    </select>
+  </form>
+
+  {% if selected_video and events %}
+  <div class="progress">
+    视频: <strong>{{ selected_video }}</strong> &nbsp;|&nbsp;
+    事件数: <span>{{ events|length }}</span> &nbsp;|&nbsp;
+    已标注: <span id="annotated-count">{{ gt.get(selected_video, {})|length }}</span> / {{ events|length }}
+  </div>
+
+  {% for event in events %}
+  {% set saved_entry = gt.get(selected_video, {}).get(event.event_id|string, None) %}
+  <div class="event-card {% if saved_entry %}saved{% endif %}" id="card-{{ event.event_id }}">
+    <div class="event-header">
+      事件 #{{ event.event_id }} &nbsp;|&nbsp;
+      {{ event.start_ts | timestamp }}–{{ event.end_ts | timestamp }}
+      &nbsp;|&nbsp; {{ event.detections|length }} 个检测
+      {% if saved_entry %}<span class="saved-badge">✓ {{ saved_entry.plate_text }}</span>{% endif %}
+    </div>
+
+    <div class="crops">
+      {% for d in event.detections %}
+      {% set conf_class = 'conf-high' if d.confidence >= 0.9 else ('conf-mid' if d.confidence >= 0.7 else 'conf-low') %}
+      <div class="crop-item">
+        <img src="/detections/{{ d.camera_id }}_{{ d.frame_num }}_{{ d.plate_text }}_crop.jpg"
+             onerror="this.style.display='none'"
+             onclick="openImg(this.src)"
+             title="{{ d.plate_text }} ({{ '%.3f'|format(d.confidence) }})">
+        <div class="crop-label {{ conf_class }}">
+          {{ d.plate_text }}
+          <span style="color:#555">({{ '%.2f'|format(d.confidence) }})</span>
+        </div>
+        <button class="suggest-btn" onclick="suggestPlate('{{ event.event_id }}', '{{ d.plate_text }}')">用这个</button>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="input-row">
+      <input class="plate-input" id="plate-{{ event.event_id }}"
+             placeholder="真实车牌"
+             value="{{ saved_entry.plate_text if saved_entry else '' }}"
+             onkeydown="if(event.key==='Enter') saveEvent({{ event.event_id }}, '{{ event.video_file }}', {{ event.start_ts }}, {{ event.end_ts }})">
+      <input class="note-input" id="note-{{ event.event_id }}"
+             placeholder="备注（可选）"
+             value="{{ saved_entry.note if saved_entry else '' }}">
+      <button class="btn-save" onclick="saveEvent({{ event.event_id }}, '{{ event.video_file }}', {{ event.start_ts }}, {{ event.end_ts }})">保存</button>
+      <button class="btn-skip" onclick="skipEvent({{ event.event_id }}, '{{ event.video_file }}', {{ event.start_ts }}, {{ event.end_ts }})">跳过</button>
+      <span class="status-msg" id="status-{{ event.event_id }}"></span>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% elif selected_video %}
+  <p style="color:#888">该视频没有检测数据。</p>
+  {% else %}
+  <p style="color:#555">请先选择视频。</p>
+  {% endif %}
+
+  <div class="img-modal" id="imgModal" onclick="closeImg()">
+    <img id="modalImg" src="">
+  </div>
+
+  <script>
+    function openImg(src) {
+      document.getElementById('modalImg').src = src;
+      document.getElementById('imgModal').classList.add('open');
+    }
+    function closeImg() {
+      document.getElementById('imgModal').classList.remove('open');
+    }
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeImg(); });
+
+    function suggestPlate(eventId, plate) {
+      const inp = document.getElementById('plate-' + eventId);
+      inp.value = plate;
+      inp.focus();
+    }
+
+    let annotatedCount = parseInt(document.getElementById('annotated-count')?.textContent || '0');
+
+    async function saveEvent(eventId, videoFile, startTs, endTs) {
+      const plate = document.getElementById('plate-' + eventId).value.trim().toUpperCase();
+      const note  = document.getElementById('note-' + eventId).value.trim();
+      if (!plate) { setStatus(eventId, '⚠ 请输入车牌', '#f44336'); return; }
+
+      const r = await fetch('/api/annotate/save', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ video_file: videoFile, event_id: eventId, plate_text: plate, start_ts: startTs, end_ts: endTs, note }),
+      });
+      const data = await r.json();
+      if (data.ok) {
+        setStatus(eventId, '✓ 已保存', '#4caf50');
+        const card = document.getElementById('card-' + eventId);
+        if (!card.classList.contains('saved')) {
+          card.classList.add('saved');
+          annotatedCount++;
+          document.getElementById('annotated-count').textContent = annotatedCount;
+        }
+        const header = card.querySelector('.event-header');
+        const old = header.querySelector('.saved-badge');
+        if (old) old.remove();
+        header.insertAdjacentHTML('beforeend', `<span class="saved-badge"> ✓ ${plate}</span>`);
+      }
+    }
+
+    async function skipEvent(eventId, videoFile, startTs, endTs) {
+      const r = await fetch('/api/annotate/save', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ video_file: videoFile, event_id: eventId, plate_text: '', start_ts: startTs, end_ts: endTs, note: 'skipped' }),
+      });
+      const data = await r.json();
+      if (data.ok) setStatus(eventId, '— 已跳过', '#888');
+    }
+
+    function setStatus(eventId, msg, color) {
+      const el = document.getElementById('status-' + eventId);
+      if (el) { el.textContent = msg; el.style.color = color; }
+    }
+  </script>
+</body>
+</html>

@@ -64,6 +64,85 @@ def index(request: Request, video: str | None = None):
     })
 
 
+GT_PATH = Path("data/ground_truth.json")
+
+
+@app.get("/annotate", response_class=HTMLResponse)
+def annotate(request: Request, video: str | None = None):
+    with db.get_conn() as conn:
+        videos = [r["video_file"] for r in conn.execute(
+            "SELECT DISTINCT video_file FROM detections ORDER BY video_file"
+        ).fetchall()]
+    events = db.get_annotation_events(video) if video else []
+    gt = json.loads(GT_PATH.read_text()) if GT_PATH.exists() else {}
+    return templates.TemplateResponse("annotate.html", {
+        "request": request,
+        "videos": videos,
+        "selected_video": video,
+        "events": events,
+        "gt": gt,
+    })
+
+
+@app.post("/api/annotate/save")
+async def save_annotation(request: Request):
+    body = await request.json()
+    gt = json.loads(GT_PATH.read_text()) if GT_PATH.exists() else {}
+    video = body["video_file"]
+    if video not in gt:
+        gt[video] = {}
+    gt[video][str(body["event_id"])] = {
+        "plate_text": body["plate_text"].strip().upper(),
+        "start_ts": body["start_ts"],
+        "end_ts": body["end_ts"],
+        "note": body.get("note", ""),
+    }
+    GT_PATH.parent.mkdir(exist_ok=True)
+    GT_PATH.write_text(json.dumps(gt, indent=2, ensure_ascii=False))
+    return {"ok": True, "saved": len(gt[video])}
+
+
+@app.get("/benchmark", response_class=HTMLResponse)
+def benchmark(request: Request, video: str | None = None):
+    gt_all = json.loads(GT_PATH.read_text()) if GT_PATH.exists() else {}
+    with db.get_conn() as conn:
+        videos = [r["video_file"] for r in conn.execute(
+            "SELECT DISTINCT video_file FROM detections ORDER BY video_file"
+        ).fetchall()]
+
+    results = {}
+    for vid in (([video] if video else videos)):
+        gt_vid = gt_all.get(vid, {})
+        if not gt_vid:
+            continue
+        pipeline = db.merge_stationary_sessions(db.get_plate_sessions(video_file=vid))
+        detected = {s["detection"]["plate_text"] for s in pipeline}
+        gt_plates = {v["plate_text"] for v in gt_vid.values() if v["plate_text"]}
+
+        tp = detected & gt_plates
+        fp = detected - gt_plates
+        fn = gt_plates - detected
+        precision = len(tp) / len(detected) if detected else 0.0
+        recall = len(tp) / len(gt_plates) if gt_plates else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
+        results[vid] = {
+            "tp": sorted(tp), "fp": sorted(fp), "fn": sorted(fn),
+            "precision": round(precision, 3),
+            "recall": round(recall, 3),
+            "f1": round(f1, 3),
+            "gt_count": len(gt_plates),
+            "detected_count": len(detected),
+        }
+
+    return templates.TemplateResponse("benchmark.html", {
+        "request": request,
+        "videos": videos,
+        "selected_video": video,
+        "results": results,
+        "gt_exists": GT_PATH.exists(),
+    })
+
+
 @app.post("/api/viewer")
 def launch_viewer(video: str, ts: float = 0.0):
     """Launch the OpenCV viewer as a local subprocess, 2s before detection for 10s."""
