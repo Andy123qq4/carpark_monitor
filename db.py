@@ -183,16 +183,32 @@ def merge_stationary_sessions(
     return sorted(result, key=lambda s: s["detection"]["timestamp_sec"], reverse=True)
 
 
-def get_annotation_events(video_file: str, gap_sec: float = 10.0) -> list[dict]:
+def get_annotation_events(
+    video_file: str,
+    max_gap_sec: float = 5.0,
+    max_dist_px: float = 500.0,
+) -> list[dict]:
     rows = get_detections(video_file=video_file)
     if not rows:
         return []
 
     events: list[list] = []
     for row in sorted(rows, key=lambda r: r["timestamp_sec"]):
-        if not events or row["timestamp_sec"] - events[-1][-1]["timestamp_sec"] > gap_sec:
-            events.append([])
-        events[-1].append(row)
+        placed = False
+        row_dict = {k: row[k] for k in row.keys()} if not isinstance(row, dict) else row
+        c = _centroid(row_dict)
+        for event in reversed(events):
+            last = event[-1]
+            gap = row["timestamp_sec"] - last["timestamp_sec"]
+            if gap > max_gap_sec:
+                break
+            lc = _centroid({k: last[k] for k in last.keys()} if not isinstance(last, dict) else last)
+            if c and lc and _dist(c, lc) <= max_dist_px:
+                event.append(row)
+                placed = True
+                break
+        if not placed:
+            events.append([row])
 
     result = []
     for i, group in enumerate(events):
