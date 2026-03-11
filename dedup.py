@@ -21,8 +21,9 @@ def levenshtein(s1: str, s2: str) -> int:
 def char_similarity(a: str, b: str) -> bool:
     """Check if two characters are commonly confused in OCR."""
     confusions = {
-        'V': 'ANBHM',    # V looks like A, N, B, H, M
-        'D': 'O0',       # D looks like O, 0
+        'V': 'ANBHMY',   # V looks like A, N, B, H, M, Y
+        'Y': 'V',        # Y looks like V
+        'D': 'O0B',      # D looks like O, 0, B
         'O': 'D0Q',      # O looks like D, 0, Q
         '0': 'ODQ86',    # 0 looks like O, D, Q, 8, 6
         '8': '93658B0',  # 8 looks like 9, 3, 6, 5, B, 0
@@ -31,7 +32,7 @@ def char_similarity(a: str, b: str) -> bool:
         '5': 'S86',      # 5 looks like S, 8, 6
         'S': '5',        # S looks like 5
         '3': '8B',       # 3 looks like 8, B
-        'B': '8',        # B looks like 8
+        'B': '8D',       # B looks like 8, D
         '1': 'I7',       # 1 looks like I, 7
         'I': '1',        # I looks like 1
         '7': '1Z',       # 7 looks like 1, Z
@@ -42,7 +43,7 @@ def char_similarity(a: str, b: str) -> bool:
         'N': 'VW',       # N looks like V, W
         'H': 'V',        # H looks like V
         'M': 'VWN',      # M looks like V, W, N
-        'W': 'MN',       # W looks like M, N
+        'W': 'MNV',      # W looks like M, N, V
     }
     if a == b:
         return True
