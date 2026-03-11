@@ -1,8 +1,10 @@
 # INPUT: none (creates DB file on import)
-# OUTPUT: init_db(), save_detection(), get_detections()
+# OUTPUT: init_db(), save_detection(), get_detections(), get_plate_sessions(), merge_stationary_sessions()
 # ROLE: data access layer — SQLite read/write for plate detections
 
+import math
 import sqlite3
+from collections import defaultdict
 from pathlib import Path
 
 DB_PATH = Path("data/carpark.db")
@@ -107,3 +109,75 @@ def get_plate_sessions(video_file=None, gap_sec=30):
     with get_conn() as conn:
         rows = conn.execute(sql, params).fetchall()
     return [{"detection": r, "frame_count": r["frame_count"]} for r in rows]
+
+
+def _centroid(det: dict) -> tuple[float, float] | None:
+    if det.get("bbox_x") is None:
+        return None
+    return (det["bbox_x"] + det["bbox_w"] / 2, det["bbox_y"] + det["bbox_h"] / 2)
+
+
+def _dist(a: tuple, b: tuple) -> float:
+    return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
+
+
+def merge_stationary_sessions(
+    sessions: list[dict],
+    max_gap_sec: float = 1800,
+    max_dist_px: float = 300,
+) -> list[dict]:
+    """Merge same-plate sessions at similar bbox positions into one, marking is_stationary=True.
+
+    Input: list of {"detection": dict|sqlite3.Row, "frame_count": int}
+    Output: same structure with added "is_stationary": bool, merged rows removed.
+    """
+    if not sessions:
+        return []
+
+    def _to_dict(s):
+        det = s["detection"]
+        if not isinstance(det, dict):
+            det = {k: det[k] for k in det.keys()}
+        return {"detection": det, "frame_count": s["frame_count"], "is_stationary": False}
+
+    items = [_to_dict(s) for s in sessions]
+
+    groups: dict[tuple, list[int]] = defaultdict(list)
+    for i, s in enumerate(items):
+        key = (s["detection"]["video_file"], s["detection"]["plate_text"])
+        groups[key].append(i)
+
+    to_remove: set[int] = set()
+
+    for indices in groups.values():
+        if len(indices) < 2:
+            continue
+        indices.sort(key=lambda i: items[i]["detection"]["timestamp_sec"])
+
+        clusters: list[list[int]] = [[indices[0]]]
+        for idx in indices[1:]:
+            cur = items[idx]["detection"]
+            last = items[clusters[-1][-1]]["detection"]
+            gap = cur["timestamp_sec"] - last["timestamp_sec"]
+            c1, c2 = _centroid(last), _centroid(cur)
+            if gap <= max_gap_sec and c1 and c2 and _dist(c1, c2) <= max_dist_px:
+                clusters[-1].append(idx)
+            else:
+                clusters.append([idx])
+
+        for cluster in clusters:
+            if len(cluster) < 2:
+                continue
+            best_idx = max(cluster, key=lambda i: items[i]["detection"]["confidence"])
+            earliest_idx = min(cluster, key=lambda i: items[i]["detection"]["timestamp_sec"])
+            merged_det = {**items[best_idx]["detection"],
+                          "timestamp_sec": items[earliest_idx]["detection"]["timestamp_sec"]}
+            primary = cluster[0]
+            items[primary]["detection"] = merged_det
+            items[primary]["is_stationary"] = True
+            items[primary]["frame_count"] = sum(items[i]["frame_count"] for i in cluster)
+            for i in cluster[1:]:
+                to_remove.add(i)
+
+    result = [s for i, s in enumerate(items) if i not in to_remove]
+    return sorted(result, key=lambda s: s["detection"]["timestamp_sec"], reverse=True)
