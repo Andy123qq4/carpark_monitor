@@ -117,7 +117,12 @@ def benchmark(request: Request, video: str | None = None):
             continue
         pipeline = db.merge_stationary_sessions(db.get_plate_sessions(video_file=vid))
         detected = {s["detection"]["plate_text"] for s in pipeline}
-        gt_plates = {v["plate_text"] for v in gt_vid.values() if v["plate_text"]}
+        gt_plates = set()
+        for v in gt_vid.values():
+            for p in v["plate_text"].split("+"):
+                p = p.strip()
+                if p:
+                    gt_plates.add(p)
 
         tp = detected & gt_plates
         fp = detected - gt_plates
