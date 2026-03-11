@@ -157,12 +157,20 @@ def benchmark(request: Request, video: str | None = None):
             "detected_count": len(detected),
         }
 
+    total_gt = sum(r["gt_count"] for r in results.values())
+    total_det = sum(r["detected_count"] for r in results.values())
+    total_tp = sum(len(r["tp"]) for r in results.values())
+    overall_p = round(total_tp / total_det, 3) if total_det else 0.0
+    overall_r = round(total_tp / total_gt, 3) if total_gt else 0.0
+    overall_f1 = round(2 * overall_p * overall_r / (overall_p + overall_r), 3) if (overall_p + overall_r) else 0.0
+
     return templates.TemplateResponse("benchmark.html", {
         "request": request,
         "videos": videos,
         "selected_video": video,
         "results": results,
         "gt_exists": GT_PATH.exists(),
+        "overall": {"precision": overall_p, "recall": overall_r, "f1": overall_f1, "gt_count": total_gt, "detected_count": total_det},
     })
 
 

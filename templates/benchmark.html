@@ -49,33 +49,27 @@
   <p class="no-gt">当前视频还没有 GT 标注。请先到 <a href="/annotate" style="color:#888">标注页</a> 完成标注。</p>
   {% else %}
 
-  {% if results|length > 1 %}
-  {% set all_tp = results.values()|sum(attribute='tp')|list|unique|list %}
-  {% set total_gt = results.values()|map(attribute='gt_count')|sum %}
-  {% set total_det = results.values()|map(attribute='detected_count')|sum %}
+  {% if results|length > 1 and overall %}
   {% set total_tp_n = results.values()|map(attribute='tp')|map('length')|sum %}
   {% set total_fp_n = results.values()|map(attribute='fp')|map('length')|sum %}
   {% set total_fn_n = results.values()|map(attribute='fn')|map('length')|sum %}
-  {% set overall_p = (total_tp_n / total_det) if total_det else 0 %}
-  {% set overall_r = (total_tp_n / total_gt) if total_gt else 0 %}
-  {% set overall_f1 = (2 * overall_p * overall_r / (overall_p + overall_r)) if (overall_p + overall_r) else 0 %}
   <div class="overall">
     <h2>综合指标 (全部摄像头)</h2>
     <div class="metrics">
       <div class="metric">
-        <div class="metric-val {% if overall_p >= 0.9 %}good{% elif overall_p >= 0.7 %}mid{% else %}bad{% endif %}">{{ "%.0f%%"|format(overall_p*100) }}</div>
+        <div class="metric-val {% if overall.precision >= 0.9 %}good{% elif overall.precision >= 0.7 %}mid{% else %}bad{% endif %}">{{ "%.0f%%"|format(overall.precision*100) }}</div>
         <div class="metric-lbl">Precision</div>
       </div>
       <div class="metric">
-        <div class="metric-val {% if overall_r >= 0.9 %}good{% elif overall_r >= 0.7 %}mid{% else %}bad{% endif %}">{{ "%.0f%%"|format(overall_r*100) }}</div>
+        <div class="metric-val {% if overall.recall >= 0.9 %}good{% elif overall.recall >= 0.7 %}mid{% else %}bad{% endif %}">{{ "%.0f%%"|format(overall.recall*100) }}</div>
         <div class="metric-lbl">Recall</div>
       </div>
       <div class="metric">
-        <div class="metric-val {% if overall_f1 >= 0.9 %}good{% elif overall_f1 >= 0.7 %}mid{% else %}bad{% endif %}">{{ "%.0f%%"|format(overall_f1*100) }}</div>
+        <div class="metric-val {% if overall.f1 >= 0.9 %}good{% elif overall.f1 >= 0.7 %}mid{% else %}bad{% endif %}">{{ "%.0f%%"|format(overall.f1*100) }}</div>
         <div class="metric-lbl">F1</div>
       </div>
       <div class="metric">
-        <div class="metric-val" style="color:#aaa">{{ total_gt }}</div>
+        <div class="metric-val" style="color:#aaa">{{ overall.gt_count }}</div>
         <div class="metric-lbl">GT 车辆</div>
       </div>
     </div>
