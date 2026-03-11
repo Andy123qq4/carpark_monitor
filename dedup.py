@@ -20,17 +20,18 @@ def levenshtein(s1: str, s2: str) -> int:
 
 _CHAR_CONFUSIONS = {
     'V': 'ANBHMY',   # V looks like A, N, B, H, M, Y
-    'Y': 'V',        # Y looks like V
-    'D': 'O0B',      # D looks like O, 0, B
+    'Y': 'VW',       # Y looks like V, W
+    'D': 'O0BG',     # D looks like O, 0, B, G
     'O': 'D0Q',      # O looks like D, 0, Q
     '0': 'ODQ86',    # 0 looks like O, D, Q, 8, 6
     '8': '93658B0',  # 8 looks like 9, 3, 6, 5, B, 0
     '9': '8',        # 9 looks like 8
     '6': '8G50',     # 6 looks like 8, G, 5, 0
+    'G': 'B6D',      # G looks like B, 6, D
     '5': 'S86',      # 5 looks like S, 8, 6
     'S': '5',        # S looks like 5
     '3': '8B',       # 3 looks like 8, B
-    'B': '8D',       # B looks like 8, D
+    'B': '8DG',      # B looks like 8, D, G
     '1': 'I7',       # 1 looks like I, 7
     'I': '1',        # I looks like 1
     '7': '1Z',       # 7 looks like 1, Z
