@@ -36,6 +36,10 @@
     @keyframes flashNew { from { background: #d4edda; } to { background: transparent; } }
     .row-new { animation: flashNew 2s ease-out forwards; }
 
+    /* Stationary / parked vehicle */
+    .row-stationary { opacity: 0.65; }
+    .badge-parked { font-size: 0.72rem; background: #e8f4e8; color: #2d7a2d; border: 1px solid #b2d8b2; border-radius: 3px; padding: 1px 5px; margin-left: 4px; vertical-align: middle; }
+
     /* Image modal */
     .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.9); }
     .modal-content { margin: auto; display: block; max-width: 90%; max-height: 90vh; margin-top: 2%; }
@@ -86,7 +90,7 @@
     <tbody id="tableBody">
       {% for s in detections %}
       {% set d = s.detection %}
-      <tr data-timestamp="{{ d.timestamp_sec }}" data-confidence="{{ d.confidence }}">
+      <tr data-timestamp="{{ d.timestamp_sec }}" data-confidence="{{ d.confidence }}"{% if s.is_stationary %} class="row-stationary"{% endif %}>
         <td>
           <img class="thumb"
                src="/detections/{{ d.camera_id }}_{{ d.frame_num }}_{{ d.plate_text }}_crop.jpg"
@@ -100,7 +104,7 @@
           <button class="copy-btn" onclick="navigator.clipboard.writeText('{{ d.timestamp_sec | timestamp }}')">⎘</button>
         </td>
         <td>
-          <strong>{{ d.plate_text }}</strong>
+          <strong>{{ d.plate_text }}</strong>{% if s.is_stationary %}<span class="badge-parked">🅿 停车</span>{% endif %}
           <button class="play-btn" onclick="openClip('{{ d.video_file }}', {{ d.timestamp_sec }}, '{{ d.plate_text }}', {{ d.frame_num }})">▶</button>
           <button class="play-btn" onclick="launchViewer('{{ d.video_file }}', {{ d.timestamp_sec }})" title="Open in desktop viewer">👁</button>
         </td>
