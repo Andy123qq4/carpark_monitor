@@ -16,7 +16,7 @@ uvicorn app:app --reload
 
 **Two-process system** — processor and web server are decoupled, communicating only via SQLite.
 
-- **`processor.py`** — CLI batch job. Opens a video, extracts every 5th frame via OpenCV, runs fast-alpr (YOLO v9 + ONNX) to detect plates, validates against HK plate regex (`[A-Z]{1,2}\s?[0-9]{1,4}`), saves crop JPEGs to `data/detections/`, writes rows to SQLite.
+- **`processor.py`** — CLI batch job. Opens a video, extracts every 5th frame via OpenCV, runs fast-alpr (YOLO v9 + ONNX) to detect plates, validates against HK plate regex (see below), saves crop JPEGs to `data/detections/`, writes rows to SQLite.
 - **`dedup.py`** — Post-processing. `TemporalTracker` buffers reads per plate cluster and emits the confidence-voted best text on cluster expiry (P1). `plates_similar()` groups OCR variants using edit distance + confusion map.
 - **`db.py`** — Data access layer. `init_db()` creates the table + unique index + runs migrations. `save_detection()` uses `INSERT OR IGNORE` for idempotency. `get_plate_sessions()` uses SQL window functions (LAG → SUM → ROW_NUMBER) to group raw detections into per-plate visits with a 30s gap threshold.
 - **`app.py`** — FastAPI server. Single `GET /` endpoint renders `templates/index.html` via Jinja2. Serves crop frames as static files under `/detections/`. Also serves MJPEG clip stream and SSE realtime processing.
@@ -50,6 +50,52 @@ Convert with: `ffmpeg -i input.avi -c:v libx264 -crf 18 -preset fast -an output.
 | GF16 | Secondary entrance | ✅ Good | 32 plates / 6.6 min. Clean reads, no fps issue. |
 | GF17 | Internal lane (Cargo Lift area) | ⚠️ Poor | 5 plates / 33 min. Low-traffic service zone — reposition recommended. |
 | GF18 | Internal lane | ⚠️ Noisy | 64 plates / 18.2 min. Dominated by one parked vehicle (`WB6066`, ~20 OCR variants). |
+
+## HK Vehicle Plate Formats
+
+### Standard Private Vehicles (99% of car park traffic)
+Format: `XX####` — 2 letters + 1–4 digits (no leading zero)
+Examples: `AB 1234`, `WA 9999`, `CD 88`
+
+**Excluded letters in standard plates: I, O, Q** (avoid confusion with 1, 0)
+Current series (2026): reverse-alphabetical prefixes (WA, VA, UA…)
+
+### Special / Government Vehicles
+| Prefix | Example | Notes |
+|---|---|---|
+| `A`, `F` | `A123`, `F456` | Ambulance, Fire dept |
+| `AM` | `AM789` | Police, Customs, Postal |
+| `LC` | `LC1` | Legislative Council |
+| `ZG` | `ZG001` | PLA HK Garrison (distinct black/white style) |
+| `VV`, `DB` | `VV12`, `DB88` | Village vehicles (Lamma, DB) |
+
+### Cross-Border Plates
+| Type | Format | Notes |
+|---|---|---|
+| Mainland vehicles (港珠澳) | `FT####`, `FU####`, `FV####`, `FW####` | Left-hand drive, standard HK format |
+| Macau vehicles | `ZM####`, `ZN####`, `ZP####` | Standard HK format |
+| HK vehicles on mainland | `粤Z·XXXX港` | Mainland format — visually completely different, OCR cannot read |
+
+### Personalized Plates (since 2006)
+- Up to **8 characters**, letters + digits, no I/O/Q
+- Examples: `EMPEROR`, `1LOVEU`, `88888`
+- Rare in car parks; too diverse to enumerate
+
+### Historical / Other
+- **Digits only** `####`: pre-1959 vehicles (still valid, rarely seen)
+- **Trailer suffix** `####T`: number + T (e.g. `1234T`)
+
+### HK Plate Regex in This Codebase
+```python
+HK_PLATE_RE = re.compile(r'^[A-HJ-NP-Z]{1,2}\s?[0-9]{1,4}$')
+```
+Excludes I, O, Q from letter prefix. Allows 1–2 letter prefix + 1–4 digits.
+Intentionally does NOT cover personalized plates (too many forms → high false positive risk).
+
+### ALPR Notes
+- Cross-border `粤Z港` plates are unreadable by the ONNX OCR model (Chinese characters + different font)
+- Precision bottleneck is digit OCR errors (`3↔9`, `4↔9`, `6↔7`) — not fixable by regex
+- `O3607` (5 digits) was a known garbage detection removed manually; current regex prevents recurrence
 
 ## Constraints
 
