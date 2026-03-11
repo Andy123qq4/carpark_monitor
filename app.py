@@ -124,14 +124,29 @@ def benchmark(request: Request, video: str | None = None):
                 if p:
                     gt_plates.add(p)
 
-        tp = detected & gt_plates
-        fp = detected - gt_plates
-        fn = gt_plates - detected
-        precision = len(tp) / len(detected) if detected else 0.0
-        recall = len(tp) / len(gt_plates) if gt_plates else 0.0
+        matched_det = set()
+        matched_gt = set()
+        tp_pairs = []
+        for gt_p in gt_plates:
+            best = next((d for d in detected if d == gt_p), None)
+            if best is None:
+                best = next((d for d in detected if dedup.plates_similar(d, gt_p)), None)
+            if best:
+                matched_gt.add(gt_p)
+                tp_pairs.append((best, gt_p))
+
+        det_covered = {d for d in detected if any(dedup.plates_similar(d, g) or d == g for g in gt_plates)}
+        matched_det = {b for b, _ in tp_pairs}
+
+        tp_n = len(matched_gt)
+        fp_plates = detected - det_covered
+        fn_plates = gt_plates - matched_gt
+        precision = tp_n / len(detected) if detected else 0.0
+        recall = tp_n / len(gt_plates) if gt_plates else 0.0
         f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
+        tp_display = sorted(f"{d}{'→'+g if d != g else ''}" for d, g in tp_pairs)
         results[vid] = {
-            "tp": sorted(tp), "fp": sorted(fp), "fn": sorted(fn),
+            "tp": tp_display, "fp": sorted(fp_plates), "fn": sorted(fn_plates),
             "precision": round(precision, 3),
             "recall": round(recall, 3),
             "f1": round(f1, 3),
