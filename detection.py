@@ -10,7 +10,9 @@ import re
 from pathlib import Path
 
 import cv2
+import numpy as np
 from fast_alpr import ALPR
+from fast_alpr.alpr import ALPRResult
 
 import dedup
 
@@ -35,6 +37,29 @@ def _suppress_stderr():
 HK_PLATE_RE = re.compile(r'^[A-Z]{1,2}\s?[0-9]{1,4}$')
 FRAME_INTERVAL = 1       # process every Nth frame (1=every frame for max detection density)
 MIN_CONFIDENCE = 0.7     # confidence threshold for detections
+
+_CLAHE = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+
+
+def _apply_clahe(crop: np.ndarray) -> np.ndarray:
+    lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
+    lab[:, :, 0] = _CLAHE.apply(lab[:, :, 0])
+    return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+
+def _predict_with_clahe(alpr, frame: np.ndarray) -> list:
+    plate_detections = alpr.detector.predict(frame)
+    out = []
+    for detection in plate_detections:
+        bbox = detection.bounding_box
+        x1, y1 = max(int(bbox.x1), 0), max(int(bbox.y1), 0)
+        x2, y2 = min(int(bbox.x2), frame.shape[1]), min(int(bbox.y2), frame.shape[0])
+        crop = frame[y1:y2, x1:x2]
+        if crop.size > 0:
+            crop = _apply_clahe(crop)
+        ocr_result = alpr.ocr.predict(crop)
+        out.append(ALPRResult(detection=detection, ocr=ocr_result))
+    return out
 
 
 class ALPRDetector:
@@ -73,7 +98,7 @@ class ALPRDetector:
             bbox is (x, y, w, h) or None
         """
         with _suppress_stderr():
-            results = self.alpr.predict(frame)
+            results = _predict_with_clahe(self.alpr, frame)
         detections = []
         
         for result in results:

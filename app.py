@@ -112,7 +112,10 @@ def benchmark(request: Request, video: str | None = None):
 
     results = {}
     for vid in (([video] if video else videos)):
-        gt_vid = gt_all.get(vid, {})
+        vid_stem = Path(vid).stem
+        gt_vid = gt_all.get(vid) or next(
+            (v for k, v in gt_all.items() if Path(k).stem == vid_stem), {}
+        )
         if not gt_vid:
             continue
         pipeline = db.merge_stationary_sessions(db.get_plate_sessions(video_file=vid))
