@@ -109,6 +109,19 @@ def normalize_plate(text: str) -> str:
     return ''.join(result)
 
 
+def bbox_iou(b1, b2) -> float:
+    """Intersection-over-Union for two (x, y, w, h) bboxes."""
+    if not b1 or not b2:
+        return 0.0
+    x1, y1, w1, h1 = b1
+    x2, y2, w2, h2 = b2
+    ix = max(0, min(x1 + w1, x2 + w2) - max(x1, x2))
+    iy = max(0, min(y1 + h1, y2 + h2) - max(y1, y2))
+    inter = ix * iy
+    union = w1 * h1 + w2 * h2 - inter
+    return inter / union if union > 0 else 0.0
+
+
 def deduplicate_detections(detections: list[tuple[str, float, tuple]]) -> list[tuple[str, float, tuple]]:
     """Group similar plate readings and return the highest-confidence one per group.
     Input: [(plate_text, confidence, bbox), ...]
@@ -177,7 +190,10 @@ class TemporalTracker:
             read = (text, conf, bbox, crop, frame_num, timestamp_sec)
             matched_cid = None
             for cid, cluster in self.clusters.items():
-                if any(plates_similar(text, r[0]) for r in cluster['reads']):
+                if any(
+                    plates_similar(text, r[0]) or bbox_iou(bbox, r[2]) > 0.3
+                    for r in cluster['reads']
+                ):
                     matched_cid = cid
                     break
             if matched_cid:
