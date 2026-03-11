@@ -18,36 +18,41 @@ def levenshtein(s1: str, s2: str) -> int:
     return prev[-1]
 
 
+_CHAR_CONFUSIONS = {
+    'V': 'ANBHMY',   # V looks like A, N, B, H, M, Y
+    'Y': 'V',        # Y looks like V
+    'D': 'O0B',      # D looks like O, 0, B
+    'O': 'D0Q',      # O looks like D, 0, Q
+    '0': 'ODQ86',    # 0 looks like O, D, Q, 8, 6
+    '8': '93658B0',  # 8 looks like 9, 3, 6, 5, B, 0
+    '9': '8',        # 9 looks like 8
+    '6': '8G50',     # 6 looks like 8, G, 5, 0
+    '5': 'S86',      # 5 looks like S, 8, 6
+    'S': '5',        # S looks like 5
+    '3': '8B',       # 3 looks like 8, B
+    'B': '8D',       # B looks like 8, D
+    '1': 'I7',       # 1 looks like I, 7
+    'I': '1',        # I looks like 1
+    '7': '1Z',       # 7 looks like 1, Z
+    '2': 'Z',        # 2 looks like Z
+    'Z': '27',       # Z looks like 2, 7
+    '4': 'A',        # 4 looks like A
+    'A': 'V4',       # A looks like V, 4
+    'N': 'VW',       # N looks like V, W
+    'H': 'V',        # H looks like V
+    'M': 'VWN',      # M looks like V, W, N
+    'W': 'MNV',      # W looks like M, N, V
+}
+
+_DIGIT_TO_LETTER = {'0': 'O', '1': 'I', '2': 'Z', '4': 'A', '5': 'S', '6': 'G', '8': 'B'}
+_LETTER_TO_DIGIT = {'O': '0', 'I': '1', 'Z': '2', 'A': '4', 'S': '5', 'G': '6', 'B': '8'}
+
+
 def char_similarity(a: str, b: str) -> bool:
     """Check if two characters are commonly confused in OCR."""
-    confusions = {
-        'V': 'ANBHMY',   # V looks like A, N, B, H, M, Y
-        'Y': 'V',        # Y looks like V
-        'D': 'O0B',      # D looks like O, 0, B
-        'O': 'D0Q',      # O looks like D, 0, Q
-        '0': 'ODQ86',    # 0 looks like O, D, Q, 8, 6
-        '8': '93658B0',  # 8 looks like 9, 3, 6, 5, B, 0
-        '9': '8',        # 9 looks like 8
-        '6': '8G50',     # 6 looks like 8, G, 5, 0
-        '5': 'S86',      # 5 looks like S, 8, 6
-        'S': '5',        # S looks like 5
-        '3': '8B',       # 3 looks like 8, B
-        'B': '8D',       # B looks like 8, D
-        '1': 'I7',       # 1 looks like I, 7
-        'I': '1',        # I looks like 1
-        '7': '1Z',       # 7 looks like 1, Z
-        '2': 'Z',        # 2 looks like Z
-        'Z': '27',       # Z looks like 2, 7
-        '4': 'A',        # 4 looks like A
-        'A': 'V4',       # A looks like V, 4
-        'N': 'VW',       # N looks like V, W
-        'H': 'V',        # H looks like V
-        'M': 'VWN',      # M looks like V, W, N
-        'W': 'MNV',      # W looks like M, N, V
-    }
     if a == b:
         return True
-    return b in confusions.get(a, '') or a in confusions.get(b, '')
+    return b in _CHAR_CONFUSIONS.get(a, '') or a in _CHAR_CONFUSIONS.get(b, '')
 
 
 def plates_similar(p1: str, p2: str) -> bool:
@@ -81,31 +86,26 @@ def normalize_plate(text: str) -> str:
     if not text:
         return text
 
-    DIGIT_TO_LETTER = {'0': 'O', '1': 'I', '2': 'Z', '4': 'A', '5': 'S', '6': 'G', '8': 'B'}
-    LETTER_TO_DIGIT = {'O': '0', 'I': '1', 'Z': '2', 'A': '4', 'S': '5', 'G': '6', 'B': '8'}
-
-    # Detect letter/digit boundary: find first pure digit char at index >= 1
-    # (skip index 0 — HK plates always start with at least one letter, even if OCR misread it)
+    # Detect letter/digit boundary: first char at index >= 1 that is digit-like
+    # (pure digit takes priority over letter-lookalike; index 0 always treated as letter)
     split = len(text)
     for i, c in enumerate(text):
-        if c.isdigit() and i >= 1:
-            split = i
-            break
-    # If no pure digit found, check for letter-in-digit-position lookalikes
-    if split == len(text):
-        for i, c in enumerate(text):
-            if c in LETTER_TO_DIGIT and i >= 1:
-                split = i
-                break
+        if i >= 1 and (c.isdigit() or c in _LETTER_TO_DIGIT):
+            if split == len(text) or not text[i - 1 : i].isdigit():
+                # Prefer first pure digit; only fall back to lookalike if no digit found yet
+                if c.isdigit() or split == len(text):
+                    split = i
+                    if c.isdigit():
+                        break  # pure digit found — stop
     # Clamp to valid HK prefix range [1, 2]
     split = max(1, min(2, split))
 
     result = []
     for i, c in enumerate(text):
         if i < split:
-            result.append(DIGIT_TO_LETTER.get(c, c))
+            result.append(_DIGIT_TO_LETTER.get(c, c))
         else:
-            result.append(LETTER_TO_DIGIT.get(c, c))
+            result.append(_LETTER_TO_DIGIT.get(c, c))
     return ''.join(result)
 
 

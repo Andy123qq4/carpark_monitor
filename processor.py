@@ -8,9 +8,6 @@ from pathlib import Path
 
 os.environ["ONNXRUNTIME_LOG_SEVERITY_LEVEL"] = "4"  # suppress CoreML errors (empty tensor on no-plate frames)
 
-import logging
-logging.getLogger("open_image_models").setLevel(logging.CRITICAL)
-
 import cv2
 
 import db
