@@ -7,6 +7,8 @@ import io
 import logging
 import os
 import re
+import requests
+import time
 from pathlib import Path
 
 import cv2
@@ -145,6 +147,59 @@ def draw_bbox_label(frame, bbox, label: str) -> None:
 
 
 def parse_camera_id(video_path: str) -> str:
-    """Extract camera ID from filename, e.g. 'GF15 ...' -> 'GF15'"""
     name = Path(video_path).stem
     return name.split()[0] if ' ' in name else name
+
+
+PLATE_RECOGNIZER_TOKEN = os.environ.get("PLATE_RECOGNIZER_API", "")
+PLATE_RECOGNIZER_URL = "https://api.platerecognizer.com/v1/plate-reader/"
+
+
+class PlateRecognizerDetector:
+    def __init__(self,
+                 frame_interval: int = FRAME_INTERVAL,
+                 min_confidence: float = MIN_CONFIDENCE):
+        self.frame_interval = frame_interval
+        self.min_confidence = min_confidence
+        if not PLATE_RECOGNIZER_TOKEN:
+            raise RuntimeError("PLATE_RECOGNIZER_API env var not set")
+
+    def detect_frame(self, frame) -> list[tuple[str, float, tuple]]:
+        _, jpg = cv2.imencode(".jpg", frame)
+        for attempt in range(3):
+            try:
+                resp = requests.post(
+                    PLATE_RECOGNIZER_URL,
+                    files={"upload": jpg.tobytes()},
+                    data={"regions": "hk"},
+                    headers={"Authorization": f"Token {PLATE_RECOGNIZER_TOKEN}"},
+                    timeout=15,
+                )
+                if resp.status_code == 429:
+                    time.sleep(2 ** attempt)
+                    continue
+                resp.raise_for_status()
+                break
+            except requests.RequestException:
+                if attempt == 2:
+                    return []
+                time.sleep(2 ** attempt)
+        else:
+            return []
+        detections = []
+        for r in resp.json().get("results", []):
+            text = r["plate"].upper().strip()
+            conf = float(r["score"])
+            if conf < self.min_confidence:
+                continue
+            if not HK_PLATE_RE.match(text):
+                continue
+            box = r.get("box", {})
+            bbox = None
+            if box:
+                x1, y1, x2, y2 = box["xmin"], box["ymin"], box["xmax"], box["ymax"]
+                bbox = (int(x1), int(y1), int(x2 - x1), int(y2 - y1))
+            detections.append((text, conf, bbox))
+        detections = dedup.apply_confidence_threshold(detections, self.min_confidence)
+        detections = dedup.deduplicate_detections(detections)
+        return detections

@@ -1,9 +1,11 @@
-# INPUT: path to .avi file (CLI arg)
+# INPUT: path to video file (CLI arg)
 # OUTPUT: plate detections written to SQLite DB
 # ROLE: core pipeline — extract frames, run ALPR, validate, persist
 
+import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 os.environ["ONNXRUNTIME_LOG_SEVERITY_LEVEL"] = "4"  # suppress CoreML errors (empty tensor on no-plate frames)
@@ -34,12 +36,15 @@ def save_crop(crop, camera_id, frame_num, text):
     return crop_path
 
 
-def process_video(video_path: str):
+def process_video(video_path: str, backend: str = "fast_alpr"):
     db.init_db()
     camera_id = detection.parse_camera_id(video_path)
     video_file = Path(video_path).name
 
-    detector = detection.ALPRDetector(use_coreml=True)
+    if backend == "plate_recognizer":
+        detector = detection.PlateRecognizerDetector(frame_interval=150)
+    else:
+        detector = detection.ALPRDetector(use_coreml=True)
     tracker = dedup.TemporalTracker()
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
@@ -67,6 +72,8 @@ def process_video(video_path: str):
             raw = detector.detect_frame(frame)
             detections = [(text, conf, bbox, extract_crop(frame, bbox)) for text, conf, bbox in raw]
             emit(tracker.update(detections, frame_num, timestamp_sec))
+            if backend == "plate_recognizer":
+                time.sleep(1.0)
 
         frame_num += 1
 
@@ -75,7 +82,8 @@ def process_video(video_path: str):
     print(f"Done. {frame_num} frames scanned, {detected} plates saved.")
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python processor.py <path/to/video.avi>")
-        sys.exit(1)
-    process_video(sys.argv[1])
+    parser = argparse.ArgumentParser()
+    parser.add_argument("video", help="Path to video file")
+    parser.add_argument("--backend", choices=["fast_alpr", "plate_recognizer"], default="fast_alpr")
+    args = parser.parse_args()
+    process_video(args.video, backend=args.backend)

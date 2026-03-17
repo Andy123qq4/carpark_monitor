@@ -44,7 +44,7 @@ Plate Recognizer is trained on real-world plates globally, with an HK region hin
 ## Pre-requisites
 
 - [ ] Sign up at https://platerecognizer.com and get API token
-- [ ] Set env var: `export PLATE_RECOGNIZER_TOKEN=your_token_here`
+- [ ] Set env var: `export PLATE_RECOGNIZER_API=your_token_here`
 - [ ] `pip install requests` (already available, but confirm)
 
 ---
@@ -56,7 +56,7 @@ Plate Recognizer is trained on real-world plates globally, with an HK region hin
 - [ ] Add import: `import requests`
 - [ ] Add env var reader at module level:
   ```python
-  PLATE_RECOGNIZER_TOKEN = os.environ.get("PLATE_RECOGNIZER_TOKEN", "")
+  PLATE_RECOGNIZER_TOKEN = os.environ.get("PLATE_RECOGNIZER_API", "")
   PLATE_RECOGNIZER_URL = "https://api.platerecognizer.com/v1/plate-reader/"
   ```
 - [ ] Add class `PlateRecognizerDetector` with same interface as `ALPRDetector`:
@@ -67,7 +67,7 @@ Plate Recognizer is trained on real-world plates globally, with an HK region hin
           self.frame_interval = frame_interval
           self._tracker = dedup.TemporalTracker()
           if not PLATE_RECOGNIZER_TOKEN:
-              raise RuntimeError("PLATE_RECOGNIZER_TOKEN env var not set")
+              raise RuntimeError("PLATE_RECOGNIZER_API env var not set")
 
       def detect_frame(self, frame) -> list[tuple[str, float, tuple]]:
           _, jpg = cv2.imencode(".jpg", frame)
@@ -125,7 +125,7 @@ Plate Recognizer is trained on real-world plates globally, with an HK region hin
   ffmpeg -i "video/GF16 20260213 102959-104800.mp4" -t 60 -c copy /tmp/gf16_60s.mp4
 
   # Run with plate_recognizer backend
-  PLATE_RECOGNIZER_TOKEN=xxx python processor.py /tmp/gf16_60s.mp4 --backend plate_recognizer
+  PLATE_RECOGNIZER_API=xxx python processor.py /tmp/gf16_60s.mp4 --backend plate_recognizer
   ```
 - [ ] Check SQLite output: `sqlite3 data/carpark.db "SELECT plate_text, confidence FROM detections WHERE video_file LIKE '%gf16_60s%'"`
 - [ ] Manually compare to GF16 GT: `VD4828`, `PJ1685`, `UN8208`, `VH703`
@@ -141,8 +141,8 @@ Plate Recognizer is trained on real-world plates globally, with an HK region hin
 **Recommended: Option A** — wipe GF15 + GF16, reprocess with plate_recognizer backend:
 ```bash
 sqlite3 data/carpark.db "DELETE FROM detections WHERE video_file IN ('GF15 20260212 142142-145519.mp4','GF16 20260213 102959-104800.mp4');"
-PLATE_RECOGNIZER_TOKEN=xxx python processor.py "video/GF15 20260212 142142-145519.mp4" --backend plate_recognizer
-PLATE_RECOGNIZER_TOKEN=xxx python processor.py "video/GF16 20260213 102959-104800.mp4" --backend plate_recognizer
+PLATE_RECOGNIZER_API=xxx python processor.py "video/GF15 20260212 142142-145519.mp4" --backend plate_recognizer
+PLATE_RECOGNIZER_API=xxx python processor.py "video/GF16 20260213 102959-104800.mp4" --backend plate_recognizer
 ```
 
 ### Step 5 — Re-run benchmark and document
@@ -179,7 +179,7 @@ python processor.py "video/GF15 ..." --backend fast_alpr   # default, no token n
 
 | File | Change |
 |---|---|
-| `detection.py` | Add `PlateRecognizerDetector` class, `PLATE_RECOGNIZER_TOKEN` env var |
+| `detection.py` | Add `PlateRecognizerDetector` class, `PLATE_RECOGNIZER_API` env var |
 | `processor.py` | Add `--backend` CLI flag, rate-limit for plate_recognizer |
 | `docs/accuracy_analysis_P3_benchmark.md` | Add P4 results section |
 
