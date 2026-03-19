@@ -1,0 +1,64 @@
+Hi Sharon, Florence 👋
+
+Quick update on the project — I met with Prof. Kenneth Leung (SUST Director) on Monday
+
+---
+
+His biggest point: this is NOT just an AI project. It's a business workflow problem. The judges are Sino management, they care about feasibility and cost savings, not fancy tech
+
+---
+
+Here's what Kenneth suggested as the approach:
+
+Step 1 — Force all vehicles to register before using the loading bay. Plate number + payment method. Can use Sino's existing property app, just add a new module
+
+Step 2 — Month 1, put a guard at the gate to enforce registration. "You want to do business here? Register first." Property owner has the right to set rules
+
+Step 3 — Once most vehicles are registered, AI takes over. Camera reads plate → check database → auto-log time → auto-charge if over 20 min. If unregistered vehicle shows up → instant alert to staff to go register them on-site
+
+Step 4 — Over time, fewer unregistered vehicles = less human work needed. Show this reduction to judges — that's the cost savings pitch
+
+Step 5 — Bonus: data analytics. Parking duration, peak hours, repeat offenders, revenue reports. Kenneth said judges will love this
+
+---
+
+His key quote: "You can't solve 100%, but you solve it progressively"
+
+---
+
+Where are we now with the prototype:
+
+✅ AI can detect plates from CCTV footage
+✅ Shows which vehicles appeared and when
+✅ Groups detections into visits (entry → exit)
+✅ Web dashboard with plate crop images
+❌ Accuracy is only 30% with free plan — fixing this now (switching to cloud API, target 80%+)
+❌ No registration database yet
+❌ No real-time alerts yet
+❌ No auto-billing yet
+
+---
+
+What I need from you guys:
+
+Sharon — Can you think about the registration flow? How did HK tunnels achieve sensor and deduct money to driver automatically? How does a truck driver sign up? What info do we collect? Does Sino already have an app we can build on?
+
+Florence — What data/metrics would Sino management want to see? Things like avg parking duration, peak hours, how much revenue they're losing from overtime vehicles
+
+Both — Look at the workflow above and flag anything that doesn't make sense operationally. Kenneth specifically asked us to work this out together
+
+---
+
+Kenneth also said we can pitch to him again once we have more progress. So let's try to nail down the workflow soon 💪
+
+---
+
+Budget update:
+Spent so far: HK$2,080 out of $27,500
+We're NOT buying the $10K cameras — existing ones work fine
+Main cost is AI tools (~$4K total)
+We're using about 20% of budget — good for cost-effectiveness score
+
+---
+
+Let me know if you have any questions or ideas!

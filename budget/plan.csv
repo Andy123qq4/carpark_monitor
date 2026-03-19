@@ -1,0 +1,5 @@
+Item,Est. Cost (HKD),Priority,Justification,Status
+Claude Max 20x (Year 2),1950,P0,Core dev tool needed through Apr 30 deadline,Pending
+Plate Recognizer API,500,P0,Cloud ALPR to solve OCR accuracy bottleneck (30% → 80%+),Pending
+Cloud server (demo day),500,P1,Host live demo for judging day May 14,Pending
+Misc (cables / mounts),500,P2,On-site camera repositioning if needed,Pending
