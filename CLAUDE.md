@@ -35,8 +35,11 @@ This is a **business workflow problem, not just a coding problem**. Workflow fir
 ## Commands
 
 ```bash
-# Run the plate processor on a video file (use MP4, not AVI — see AVI fps bug below)
-python3 processor.py "video/GF15 20260212 142142-145519.mp4"
+# Run the plate processor — hybrid mode (recommended: local YOLO + API OCR on best crops)
+python3 processor.py "video/GF15 20260212 142142-145519.mp4" --backend hybrid
+
+# Run with local-only ALPR (fast, free, lower accuracy)
+python3 processor.py "video/GF15 20260212 142142-145519.mp4" --backend fast_alpr
 
 # Start the dashboard web server
 uvicorn app:app --reload
@@ -49,22 +52,23 @@ uvicorn app:app --reload
 ```mermaid
 graph LR
     CCTV[CCTV MP4] --> Processor[processor.py]
-    Processor --> |fast-alpr / PlateRecognizer| Detection[detection.py]
+    Processor --> |YOLO detect| Detection[detection.py]
     Detection --> Dedup[dedup.py]
-    Dedup --> DB[(SQLite)]
+    Dedup --> |best crop per car| API[Plate Recognizer API]
+    API --> DB[(SQLite)]
     DB --> App[app.py FastAPI]
     App --> Dashboard[Web Dashboard]
 ```
 
-- **`processor.py`** — CLI batch job. Opens a video, extracts every 5th frame via OpenCV, runs fast-alpr (YOLO v9 + ONNX) or Plate Recognizer API to detect plates, validates against HK plate regex, saves crop JPEGs to `data/detections/`, writes rows to SQLite. Supports `--backend {fast_alpr,plate_recognizer}`.
-- **`detection.py`** — Detector abstraction. `ALPRDetector` (local ONNX) and `PlateRecognizerDetector` (cloud API). Same `detect_frame()` interface.
-- **`dedup.py`** — Post-processing. `TemporalTracker` buffers reads per plate cluster and emits the confidence-voted best text on cluster expiry (P1). `plates_similar()` groups OCR variants using edit distance + confusion map.
+- **`processor.py`** — CLI batch job. Opens a video, runs detection per frame, deduplicates, saves crop JPEGs + writes to SQLite. Supports `--backend {fast_alpr,plate_recognizer,hybrid}`. **Hybrid mode (recommended):** local YOLO detects plates → `TemporalTracker` groups duplicates within 3s window → picks best crop by visual quality → sends only the best wide crop to Plate Recognizer API. Reduces API calls from hundreds to ~24 per 33-min video.
+- **`detection.py`** — Detector abstraction. `ALPRDetector` (local YOLO v9 + ONNX OCR), `PlateRecognizerDetector` (cloud API on full frames), and `recognize_crop()` (sends a single plate crop to API for OCR — used by hybrid mode). Wide crops (100px padding around plate bbox) are required for `recognize_crop()` because the API needs surrounding context to detect plates.
+- **`dedup.py`** — Post-processing. `TemporalTracker` buffers reads per plate cluster and emits the best result on cluster expiry. Matching criteria: `plates_similar()` (edit distance + confusion map) OR `bbox_iou > 0.3` OR **temporal proximity (within 3 seconds)**. The 3s window handles moving vehicles where bbox IoU drops and OCR text varies frame-to-frame. `crop_quality_score()` selects the sharpest, largest crop for API submission.
 - **`db.py`** — Data access layer. `init_db()` creates the table + unique index + runs migrations. `save_detection()` uses `INSERT OR IGNORE` for idempotency. `get_plate_sessions()` uses SQL window functions (LAG → SUM → ROW_NUMBER) to group raw detections into per-plate visits with a 30s gap threshold.
 - **`app.py`** — FastAPI server. Single `GET /` endpoint renders `templates/index.html` via Jinja2. Serves crop frames as static files under `/detections/`. Also serves MJPEG clip stream and SSE realtime processing.
 
 **Camera ID** is parsed from the video filename stem (first word before space, e.g. `GF15`).
 
-**File naming**: `data/detections/{camera_id}_{frame_num}_{plate_text}_crop.jpg` (plate crop only).
+**File naming**: `data/detections/{camera_id}_{frame_num}_{plate_text}_crop.jpg`. In hybrid mode, crops include 100px surrounding context (wide crop); in fast_alpr mode, crops are tight (4px padding).
 
 ## AVI FPS Bug + MP4 Conversion
 
@@ -85,7 +89,7 @@ Convert: `ffmpeg -i input.avi -c:v libx264 -crf 18 -preset fast -an output.mp4`
 
 | Camera | Location | Quality | Notes |
 |---|---|---|---|
-| GF15 | Main entrance/exit | Good | 153 plates / 33.5 min. Primary benchmark. |
+| GF15 | Main entrance/exit | Good | 24 unique plates / 33.5 min (hybrid mode). Primary benchmark. |
 | GF16 | Secondary entrance | Good | 32 plates / 6.6 min. Clean reads. |
 | GF17 | Internal lane (Cargo Lift) | Poor | 5 plates / 33 min. Reposition recommended. |
 | GF18 | Internal lane | Noisy | 64 plates / 18.2 min. Dominated by parked WB6066. |
@@ -97,10 +101,27 @@ Convert: `ffmpeg -i input.avi -c:v libx264 -crf 18 -preset fast -an output.mp4`
 | P1 | Confidence voting | — | — | — |
 | P2 | Confusion map + length tolerance | 24% | 79% | 37% |
 | P3 | CLAHE preprocessing | 26% | 66% | 37% |
-| **Baseline** | Overall (all cameras) | **30%** | **77%** | **43%** |
+| Baseline | Overall (all cameras) | 30% | 77% | 43% |
+| **P4** | **Hybrid: local YOLO + 3s dedup + API OCR** | — | — | — |
 
-**Bottleneck:** ONNX OCR digit errors (3↔9, 4↔9, 6↔7). Not fixable by preprocessing.
-**Next:** P4 (Plate Recognizer API) — target Precision ≥50%, Recall ≥77%.
+### P4 Hybrid Pipeline Results (GF15, 33.5 min video)
+
+| Metric | Before (fast_alpr) | After (hybrid) |
+|---|---|---|
+| Detections emitted | 62 | **24** (3s temporal dedup) |
+| API calls | 0 | **20** (4 fell back to local) |
+| Visually verified correct | 15/24 (63%) | **~17/24 (71%+)** |
+
+**Key improvements:**
+- 3s temporal window reduced 62 → 24 detections (same car no longer emits 4+ times)
+- API fixes local OCR letter errors: XL→YL, YX→YA, KR→WR, LA9228→LA3028
+- Wide crop extraction (100px padding) required — tight crops fail API detection
+- 4 local fallbacks: 2 non-standard plates (cross-border 粤Z, 2-line), 2 too blurry
+
+**Remaining limitations:**
+- Cross-border 粤Z plates: Chinese characters, not readable by either OCR
+- Very small/distant plates: both local and API fail
+- Letter ambiguity (V/Y, S/5): sometimes neither OCR resolves correctly
 
 ## HK Vehicle Plate Formats
 

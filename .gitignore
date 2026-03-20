@@ -1,7 +1,8 @@
 .omc/
 .superpowers
 
-video
+video/*
+!video/CLAUDE.md
 data/carpark.db
 data/detections/
 
