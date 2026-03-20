@@ -2,6 +2,18 @@
 # OUTPUT: deduplicated, refined plate readings
 # ROLE: post-processing — group similar readings, apply consensus, filter false positives
 
+import cv2
+
+
+def crop_quality_score(crop, bbox) -> float:
+    """Score crop by sharpness (Laplacian variance) weighted by bbox area."""
+    if crop is None or crop.size == 0:
+        return 0.0
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if len(crop.shape) == 3 else crop
+    sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    area = bbox[2] * bbox[3] if bbox else 1
+    return sharpness * area
+
 
 def levenshtein(s1: str, s2: str) -> int:
     """Edit distance between two strings."""
@@ -123,6 +135,17 @@ def bbox_iou(b1, b2) -> float:
     return inter / union if union > 0 else 0.0
 
 
+def bbox_center_dist(b1, b2) -> float:
+    """Euclidean distance between bbox centers."""
+    if not b1 or not b2:
+        return float('inf')
+    cx1 = b1[0] + b1[2] / 2
+    cy1 = b1[1] + b1[3] / 2
+    cx2 = b2[0] + b2[2] / 2
+    cy2 = b2[1] + b2[3] / 2
+    return ((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2) ** 0.5
+
+
 def deduplicate_detections(detections: list[tuple[str, float, tuple]]) -> list[tuple[str, float, tuple]]:
     """Group similar plate readings and return the highest-confidence one per group.
     Input: [(plate_text, confidence, bbox), ...]
@@ -162,8 +185,9 @@ def apply_confidence_threshold(detections: list[tuple[str, float, tuple]], min_c
 class TemporalTracker:
     """Buffer plate reads across frames; emit confidence-voted best on cluster expiry."""
 
-    def __init__(self, hold_frames: int = 30):
+    def __init__(self, hold_frames: int = 30, pick_best_crop: bool = False):
         self.hold_frames = hold_frames
+        self.pick_best_crop = pick_best_crop
         self._next_id = 0
         # cluster_id -> {last_frame, reads: [(text, conf, bbox, crop, frame_num, timestamp_sec)]}
         self.clusters: dict[str, dict] = {}
@@ -192,7 +216,9 @@ class TemporalTracker:
             matched_cid = None
             for cid, cluster in self.clusters.items():
                 if any(
-                    plates_similar(text, r[0]) or bbox_iou(bbox, r[2]) > 0.3
+                    plates_similar(text, r[0])
+                    or bbox_iou(bbox, r[2]) > 0.3
+                    or abs(timestamp_sec - r[5]) < 3.0  # same car within 3s window
                     for r in cluster['reads']
                 ):
                     matched_cid = cid
@@ -215,6 +241,12 @@ class TemporalTracker:
 
     def _vote(self, reads: list[tuple]) -> tuple:
         """Pick winning plate text by summing confidence scores, then normalize."""
+        if self.pick_best_crop:
+            # Hybrid mode: pick by crop visual quality (sharpness * area)
+            best = max(reads, key=lambda r: crop_quality_score(r[3], r[2]))
+            normalized = normalize_plate(best[0])
+            return (normalized,) + best[1:]
+
         votes: dict[str, float] = {}
         for text, conf, *_ in reads:
             votes[text] = votes.get(text, 0.0) + conf

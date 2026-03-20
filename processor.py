@@ -4,26 +4,29 @@
 
 import argparse
 import os
-import sys
 import time
 from pathlib import Path
 
-os.environ["ONNXRUNTIME_LOG_SEVERITY_LEVEL"] = "4"  # suppress CoreML errors (empty tensor on no-plate frames)
-
 import cv2
+from dotenv import load_dotenv
 
 import db
 import dedup
-import detection
+
+load_dotenv()  # must run before importing detection (reads PLATE_RECOGNIZER_API at module level)
+os.environ["ONNXRUNTIME_LOG_SEVERITY_LEVEL"] = "4"  # suppress CoreML errors
+import detection  # noqa: E402
 
 DETECTION_DIR = Path("data/detections")
 
-def extract_crop(frame, bbox):
+def extract_crop(frame, bbox, wide: bool = False):
+    """Extract plate region from frame. Wide mode adds 100px context for API."""
     if not bbox:
         return None
     x, y, w, h = bbox
-    pad = 4
-    crop = frame[max(0, y - pad):y + h + pad, max(0, x - pad):x + w + pad]
+    fh, fw = frame.shape[:2]
+    pad = 100 if wide else 4
+    crop = frame[max(0, y - pad):min(fh, y + h + pad), max(0, x - pad):min(fw, x + w + pad)]
     return crop if crop.size > 0 else None
 
 
@@ -43,9 +46,14 @@ def process_video(video_path: str, backend: str = "fast_alpr"):
 
     if backend == "plate_recognizer":
         detector = detection.PlateRecognizerDetector(frame_interval=150)
+    elif backend == "hybrid":
+        if not detection.PLATE_RECOGNIZER_TOKEN:
+            print("ERROR: PLATE_RECOGNIZER_API env var not set (check .env file)")
+            return
+        detector = detection.ALPRDetector(use_coreml=True)
     else:
         detector = detection.ALPRDetector(use_coreml=True)
-    tracker = dedup.TemporalTracker()
+    tracker = dedup.TemporalTracker(pick_best_crop=(backend == "hybrid"))
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
     frame_num = 0
@@ -56,11 +64,18 @@ def process_video(video_path: str, backend: str = "fast_alpr"):
     def emit(emissions):
         nonlocal detected
         for text, conf, bbox, crop, best_frame, best_ts in emissions:
+            source = "local"
+            if backend == "hybrid" and crop is not None:
+                api_result = detection.recognize_crop(crop)
+                if api_result:
+                    text, conf = api_result
+                    source = "API"
+                    time.sleep(1.0)  # rate limit
             db.save_detection(video_file, camera_id, best_frame, best_ts, text, conf, bbox)
             img_path = save_crop(crop, camera_id, best_frame, text)
             detected += 1
             bbox_msg = f" bbox={bbox}" if bbox else " [no bbox]"
-            print(f"  [{best_ts:.1f}s] {text} ({conf:.2f}){bbox_msg} -> {img_path}")
+            print(f"  [{best_ts:.1f}s] {text} ({conf:.2f}){bbox_msg} [{source}] -> {img_path}")
 
     while True:
         ret, frame = cap.read()
@@ -70,7 +85,8 @@ def process_video(video_path: str, backend: str = "fast_alpr"):
         if frame_num % detector.frame_interval == 0:
             timestamp_sec = frame_num / fps
             raw = detector.detect_frame(frame)
-            detections = [(text, conf, bbox, extract_crop(frame, bbox)) for text, conf, bbox in raw]
+            wide = (backend == "hybrid")
+            detections = [(text, conf, bbox, extract_crop(frame, bbox, wide=wide)) for text, conf, bbox in raw]
             emit(tracker.update(detections, frame_num, timestamp_sec))
             if backend == "plate_recognizer":
                 time.sleep(1.0)
@@ -84,6 +100,6 @@ def process_video(video_path: str, backend: str = "fast_alpr"):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("video", help="Path to video file")
-    parser.add_argument("--backend", choices=["fast_alpr", "plate_recognizer"], default="fast_alpr")
+    parser.add_argument("--backend", choices=["fast_alpr", "plate_recognizer", "hybrid"], default="fast_alpr")
     args = parser.parse_args()
     process_video(args.video, backend=args.backend)

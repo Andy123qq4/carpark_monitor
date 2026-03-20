@@ -155,6 +155,44 @@ PLATE_RECOGNIZER_TOKEN = os.environ.get("PLATE_RECOGNIZER_API", "")
 PLATE_RECOGNIZER_URL = "https://api.platerecognizer.com/v1/plate-reader/"
 
 
+def recognize_crop(crop) -> tuple[str, float] | None:
+    """Send a plate crop image to Plate Recognizer API for accurate OCR."""
+    if crop is None or crop.size == 0:
+        return None
+    if not PLATE_RECOGNIZER_TOKEN:
+        return None
+    _, jpg = cv2.imencode(".jpg", crop)
+    for attempt in range(3):
+        try:
+            resp = requests.post(
+                PLATE_RECOGNIZER_URL,
+                files={"upload": jpg.tobytes()},
+                data={"regions": "hk"},
+                headers={"Authorization": f"Token {PLATE_RECOGNIZER_TOKEN}"},
+                timeout=15,
+            )
+            if resp.status_code == 429:
+                time.sleep(2 ** attempt)
+                continue
+            resp.raise_for_status()
+            break
+        except requests.RequestException:
+            if attempt == 2:
+                return None
+            time.sleep(2 ** attempt)
+    else:
+        return None
+    results = resp.json().get("results", [])
+    if not results:
+        return None
+    best = max(results, key=lambda r: r["score"])
+    text = best["plate"].upper().strip()
+    conf = float(best["score"])
+    if not HK_PLATE_RE.match(text):
+        return None
+    return (text, conf)
+
+
 class PlateRecognizerDetector:
     def __init__(self,
                  frame_interval: int = FRAME_INTERVAL,
