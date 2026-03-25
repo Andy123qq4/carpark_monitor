@@ -36,7 +36,8 @@ def _suppress_stderr():
         os.close(devnull)
 
 # Configuration
-HK_PLATE_RE = re.compile(r'^[A-Z]{1,2}\s?[0-9]{1,4}$')
+# HK standard plates exclude I, O, Q (confused with 1, 0)
+HK_PLATE_RE = re.compile(r'^[A-HJ-NP-Z]{1,2}\s?[0-9]{1,4}$')
 FRAME_INTERVAL = 1       # process every Nth frame (1=every frame for max detection density)
 MIN_CONFIDENCE = 0.7     # confidence threshold for detections
 
