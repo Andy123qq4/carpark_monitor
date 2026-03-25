@@ -51,7 +51,7 @@ db.init_db()
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, video: str | None = None):
-    detections = db.merge_stationary_sessions(db.get_plate_sessions(video_file=video))
+    detections = db.merge_stationary_sessions(db.merge_similar_plates(db.get_plate_sessions(video_file=video)))
     with db.get_conn() as conn:
         videos = [r["video_file"] for r in conn.execute(
             "SELECT DISTINCT video_file FROM detections ORDER BY video_file"
@@ -122,7 +122,7 @@ def benchmark(request: Request, video: str | None = None):
         )
         if not gt_vid:
             continue
-        pipeline = db.merge_stationary_sessions(db.get_plate_sessions(video_file=vid))
+        pipeline = db.merge_stationary_sessions(db.merge_similar_plates(db.get_plate_sessions(video_file=vid)))
         detected = {s["detection"]["plate_text"] for s in pipeline}
         gt_plates = set()
         for v in gt_vid.values():

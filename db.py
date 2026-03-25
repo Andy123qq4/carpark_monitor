@@ -111,6 +111,86 @@ def get_plate_sessions(video_file=None, gap_sec=30):
     return [{"detection": r, "frame_count": r["frame_count"]} for r in rows]
 
 
+def merge_similar_plates(sessions: list[dict], max_gap_sec: float = 30) -> list[dict]:
+    """Merge sessions that are the same physical vehicle but have different plate text.
+
+    Handles two cases:
+    1. OCR variants — plates_similar() catches single-char OCR errors
+    2. Dual-plate vehicles (HK+China) — garbled text differs completely,
+       but bbox location + timestamp identify the same vehicle
+
+    Matching: plates_similar() OR (bbox IoU > 0.3 AND time gap < max_gap_sec).
+    Picks the highest-confidence reading as canonical plate text.
+    """
+    if not sessions:
+        return []
+    from dedup import bbox_iou, plates_similar
+
+    def _to_dict(s):
+        det = s["detection"]
+        if not isinstance(det, dict):
+            det = {k: det[k] for k in det.keys()}
+        return {**s, "detection": det}
+
+    def _bbox(det):
+        if det.get("bbox_x") is None:
+            return None
+        return (det["bbox_x"], det["bbox_y"], det["bbox_w"], det["bbox_h"])
+
+    items = [_to_dict(s) for s in sessions]
+    items.sort(key=lambda s: s["detection"]["timestamp_sec"])
+
+    # Union-Find
+    parent = list(range(len(items)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    for i in range(len(items)):
+        for j in range(i + 1, len(items)):
+            di, dj = items[i]["detection"], items[j]["detection"]
+            if di["video_file"] != dj["video_file"]:
+                continue
+            time_gap = abs(di["timestamp_sec"] - dj["timestamp_sec"])
+            if time_gap > max_gap_sec:
+                continue
+            # Match by text similarity (OCR errors)
+            if plates_similar(di["plate_text"], dj["plate_text"]):
+                union(i, j)
+                continue
+            # Match by bbox overlap (dual-plate: same location, different text)
+            bi, bj = _bbox(di), _bbox(dj)
+            if bi and bj and bbox_iou(bi, bj) > 0.3:
+                union(i, j)
+
+    # Group by root
+    groups: dict[int, list[int]] = defaultdict(list)
+    for i in range(len(items)):
+        groups[find(i)].append(i)
+
+    result = []
+    for indices in groups.values():
+        best_idx = max(indices, key=lambda i: items[i]["detection"]["confidence"])
+        earliest_idx = min(indices, key=lambda i: items[i]["detection"]["timestamp_sec"])
+        merged = {**items[best_idx]}
+        merged["detection"] = {
+            **items[best_idx]["detection"],
+            "timestamp_sec": items[earliest_idx]["detection"]["timestamp_sec"],
+        }
+        merged["frame_count"] = sum(items[i]["frame_count"] for i in indices)
+        result.append(merged)
+
+    return sorted(result, key=lambda s: s["detection"]["timestamp_sec"], reverse=True)
+
+
 def _centroid(det: dict) -> tuple[float, float] | None:
     if det.get("bbox_x") is None:
         return None
